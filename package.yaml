@@ -1,10 +1,10 @@
 name:                func-lang-interpreter
 version:             0.1.0.0
-github:              "githubuser/func-lang-interpreter"
+github:              "chutien/func-lang-interpreter"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2019 Author name here"
+author:              "Tien Chu"
+maintainer:          "tc385532@students.mimuw.edu.pl"
+copyright:           "2019 Tien Chu"
 
 extra-source-files:
 - README.md
@@ -21,12 +21,17 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- array >= 0.5 && < 0.6
+- containers
+- mtl
 
 library:
-  source-dirs: src
+  source-dirs:
+  - src/interpreter
+  - src/grammar
 
 executables:
-  func-lang-interpreter-exe:
+  interpreter:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -37,7 +42,7 @@ executables:
     - func-lang-interpreter
 
 tests:
-  func-lang-interpreter-test:
+  interpreter-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:

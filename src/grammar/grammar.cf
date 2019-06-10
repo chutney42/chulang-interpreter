@@ -1,0 +1,92 @@
+entrypoints Program ;
+
+separator Ident "" ;
+
+token LIdent (lower (letter | digit | '_')*) ;
+separator LIdent "" ;
+
+token UIdent (upper (letter | digit | '_')*) ;
+separator UIdent "" ;
+
+Prog. Program ::= [Instr] ;
+
+IDecl. Instr ::= "let" Decl ;
+IType. Instr ::= "type" TypeDef ;
+IExpr. Instr ::= Expr ;
+terminator Instr ";" ;
+
+Decl. Decl ::= LIdent [Arg] "=" Expr ":" Type ;
+separator Decl "," ;
+
+TypeDef. TypeDef ::= UIdent [LIdent] "=" [Constr] ; 
+
+Constr. Constr ::= UIdent [Type] ;
+separator nonempty Constr "|" ;
+
+TArr. Type ::= Type2 "->" Type ;
+--TList. Type2 ::= "[" Type "]" ;
+--TInt. Type2 ::= "Int" ;
+--TBool. Type2 ::= "Bool" ;
+TVar. Type2 ::= LIdent ;
+TType. Type2 ::= Constr;
+coercions Type 2 ;
+separator Type "" ;
+
+Arg. Arg ::= LIdent ":" Type ;
+separator Arg "" ;
+
+
+--PList. Pattern ::= "[" [Pattern] "]" ;
+PConstr. Pattern ::= UIdent [Pattern] ;
+PVar. Pattern2 ::= LIdent ;
+PInt. Pattern2 ::= Integer ;
+PBool. Pattern2 ::= Boolean ;
+PWildcard. Pattern2 ::= "_" ;
+coercions Pattern 2 ;
+separator Pattern "" ;
+
+Matching. Matching ::= Pattern "->" Expr ;
+separator nonempty Matching "|" ;
+
+BTrue. Boolean ::= "True" ;
+BFalse. Boolean ::= "False" ;
+
+ELambda. Expr ::= "\\" Arg [Arg] "." Expr ;
+ELet. Expr ::= "let" [Decl] "in" Expr ;
+EIfte. Expr ::= "if" Expr "then" Expr "else" Expr ;
+EMatch. Expr ::= "match" Expr "with" [Matching] ;
+
+EOr. Expr2 ::= Expr3 "||" Expr2 ;
+EAnd. Expr3 ::= Expr4 "&&" Expr3 ;
+
+EEq. Expr4 ::= Expr5 "==" Expr5 ;
+ENeq. Expr4 ::= Expr5 "!=" Expr5 ;
+ELeq. Expr4 ::= Expr5 "<=" Expr5 ;
+ELes. Expr4 ::= Expr5 "<" Expr5 ;
+EGre. Expr4 ::= Expr5 ">" Expr5 ;
+EGeq. Expr4 ::= Expr5 ">=" Expr5 ;
+
+--EConc. Expr5 ::= Expr6 "++" Expr5 ;
+--ECons. Expr5 ::= Expr6 "~" Expr5 ;
+
+EAdd. Expr6 ::= Expr6 "+" Expr7 ;
+ESub. Expr6 ::= Expr6 "-" Expr7 ;
+
+EMul. Expr7 ::= Expr7 "*" Expr8 ;
+EDiv. Expr7 ::= Expr7 "/" Expr8 ;
+
+--EComp. Expr9 ::= Expr10 "&" Expr9 ;
+
+EApply. Expr10 ::= Expr10 Expr11 ;
+
+EInt. Expr11 ::= Integer ;
+EBool. Expr11 ::= Boolean ;
+EVar. Expr11 ::= LIdent ;
+EConstr. Expr11 ::= UIdent ;
+internal EData. Expr11 ::= UIdent [Expr11];
+
+coercions Expr 11 ;
+separator Expr11 "" ;
+
+comment "/*" "*/" ;
+comment "//";
