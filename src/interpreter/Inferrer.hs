@@ -1,13 +1,13 @@
 module Inferrer where
 
-import qualified Data.Map as M
-import qualified Data.Set as S
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Data.Sequence as Seq
 import Data.Either
 import Data.Char(chr, intToDigit)
 
 import Control.Monad.State
 import Control.Monad.Reader
---import Control.Monad.Error
 import Control.Monad.Identity
 import Control.Monad.Except
 
@@ -15,13 +15,14 @@ import AbsGrammar
 --import Environment
 
 
-type Env = M.Map String Scheme
+type Env = Map.Map String Scheme
 
 initEnv :: Env
-initEnv = M.empty
+initEnv = Map.empty
 
 data TypeError
   = Mismatch Type Type
+  | InfiniteType String Type
   | NotFunction Type
   | NotInScope String
   deriving (Eq, Show)
@@ -34,60 +35,78 @@ data TcState = TcState {
   tcsNS :: NameSupply, -- dostawca nazw
   tcsSubst :: Subst, -- podstawienie
   constraints :: Constraints -- równania
-}
+} deriving Show
+
+--type TCM s a = StateT s (ReaderT Env (ExceptT TypeError (Identity))) a
 
 initTcState :: TcState
 initTcState = TcState {
   tcsNS = NameSupply { counter = 0 },
   tcsSubst = emptySubst,
-  constraints = []
+  constraints = Seq.empty
 }
 
 type Constraint = (Type, Type)
-type Constraints = [Constraint]
+type Constraints = Seq.Seq Constraint
 
-data NameSupply = NameSupply { counter :: Int }
+type Unifier = (Subst, Constraints)
 
-type Subst = M.Map String Type
+data NameSupply = NameSupply { counter :: Int } deriving Show
 
-runTCM :: TCM a -> Either TypeError a
-runTCM tcm = runIdentity$ runExceptT $ runReaderT (evalStateT tcm initTcState) initEnv
---runTCM tcm =
---  case runExcept tcm of
---    Left err -> 
---  runReader $ evalStateT t initTcState)
+type Subst = Map.Map String Type
+
+
+infix 4 |->
+class Substitutable a where
+  (|->) :: Subst -> a -> a
+  ftv :: a -> Set.Set String
+
+instance Substitutable Type where
+  (|->) s t = case t of
+    TConstr c -> TConstr c
+    TVar (LIdent x) -> Map.findWithDefault t x s
+    TArr l r -> TArr (s |-> l) (s |-> l)
+  ftv t = case t of
+    TConstr c -> Set.empty
+    TVar (LIdent x) -> Set.singleton x
+    TArr l r -> Set.union (ftv l) (ftv r)
+
+instance Substitutable Scheme where
+  (|->) s (ForAll xs t) = let s' = foldr Map.delete s xs in ForAll xs $ s' |-> t
+  ftv (ForAll xs t) = Set.difference (ftv t) (Set.fromList xs) 
+
+instance Substitutable a => Substitutable [a] where
+  (|->) = fmap . (|->)
+  ftv = foldr (Set.union . ftv) Set.empty
+
+instance Substitutable a => Substitutable (Seq.Seq a) where
+  (|->) = fmap . (|->)
+  ftv = foldr (Set.union . ftv) Set.empty
+
+instance (Substitutable a, Substitutable b) => Substitutable (a, b) where
+  (|->) s (t1, t2) = (s |-> t1, s |-> t2)
+  ftv (t1, t2) = Set.union (ftv t1) (ftv t2)
+
+emptySubst :: Subst
+emptySubst = Map.empty
+
+infix 4 <@>
+(<@>) :: Subst -> Subst -> Subst
+s1 <@> s2 = Map.map (s1 |->) s2 `Map.union` s1
+
+evalTCM :: TCM a -> Either TypeError a
+evalTCM tcm = runIdentity$ runExceptT $ runReaderT (evalStateT tcm initTcState) initEnv
+
+runTCM :: TCM a -> Either TypeError (a, TcState)
+runTCM tcm = runIdentity$ runExceptT $ runReaderT (runStateT tcm initTcState) initEnv
 
 addConstraint :: Type -> Type -> TCM ()
 addConstraint t1 t2 = do
   let c = (t1, t2)
   cs <- gets constraints
-  modify (\state -> state { constraints = (c:cs) } )
+  modify (\state -> state { constraints = (cs Seq.|> c) } )
   return ()
 
-emptySubst :: Subst
-emptySubst = M.empty
-
-composeSubst :: Subst -> Subst -> Subst
-s1 `composeSubst` s2 = M.map (substitute s1) s2 `M.union` s1
-
-substitute :: Subst -> Type -> Type
-substitute s t = case t of
-  TConstr c -> TConstr c
-  TVar (LIdent x) -> M.findWithDefault t x s
-  TArr l r -> TArr (substitute s l) (substitute s l)
-
-ftv :: Type -> S.Set String
-ftv t = case t of
-  TConstr c -> S.empty
-  TVar (LIdent x) -> S.singleton x
-  TArr l r -> S.union (ftv l) (ftv r)
-
-ftvScheme :: Scheme -> S.Set String
-ftvScheme (ForAll xs t) = S.difference (ftv t) (S.fromList xs) 
---substituteForAll :: Subst -> Scheme -> Scheme
---substituteForAll s (ForAll xs t) =
---  let s' = foldr M.delete s xs in ForAll xs $ apply s' t
-  
 int :: Type
 int = TConstr $ Constr (UIdent "Int") []
 
@@ -106,22 +125,15 @@ freshName = do
 instantiate :: Scheme -> TCM Type
 instantiate (ForAll xs t) = do
   xs' <- mapM (\_ -> freshName) xs
-  let s = M.fromList $ zip xs xs'
-  return $ substitute s t
+  let s = Map.fromList $ zip xs xs'
+  return $ s |-> t
 
 generalize :: Type -> TCM Scheme
 generalize t = do
   env <- ask
-  let ftvEnv = foldr (S.union . ftvScheme) S.empty (M.elems env)
-  let xs = S.toList $ S.difference (ftv t) ftvEnv
+  let ftvEnv = ftv $ Map.elems env
+  let xs = Set.toList $ Set.difference (ftv t) ftvEnv
   return $ ForAll xs t  
-
-occursCheck :: String -> Type -> Bool
-occursCheck x t = S.member x (ftv t)
-
---unify :: Type -> Type -> TCM Subst
-
---bind :: String -> Type -> TCM Subst
 
 infer :: Expr -> TCM Type
 infer expr = case expr of
@@ -129,14 +141,14 @@ infer expr = case expr of
   EBool _ -> return bool
   
   EVar (LIdent x) -> do
-    found <- asks $ M.lookup x
+    found <- asks $ Map.lookup x
     case found of
       Nothing -> throwError $ NotInScope x
       Just s -> instantiate s
 
   ELambda ((Arg (LIdent x)):xs) expr -> do
     tv <- freshName
-    let new env = M.insert x (ForAll [] tv) env
+    let new env = Map.insert x (ForAll [] tv) env
     let expr' = case xs of
           [] -> expr
           _ -> ELambda xs expr
@@ -159,7 +171,7 @@ infer expr = case expr of
       env <- ask
       ltype <- infer lexpr
       s <- generalize ltype
-      let new = M.insert x s
+      let new = Map.insert x s
       let rexpr' = case ds of
             [] -> rexpr
             _ -> ELet ds rexpr
@@ -187,7 +199,6 @@ infer expr = case expr of
   EMul lexpr rexpr -> inferBinOp int int lexpr rexpr
   EDiv lexpr rexpr -> inferBinOp int int lexpr rexpr
   
-  
 inferBinOp :: Type -> Type -> Expr -> Expr -> TCM Type
 inferBinOp targ tres lexpr rexpr = do
   lt <- infer lexpr
@@ -195,4 +206,43 @@ inferBinOp targ tres lexpr rexpr = do
   tv <- freshName
   let t1 = TArr lt (TArr rt tv)
   let t2 = TArr targ (TArr targ tres)
+  addConstraint t1 t2
   return tv
+
+occursCheck :: String -> Type -> Bool
+occursCheck x t = Set.member x (ftv t)
+
+bind :: String -> Type -> TCM Subst
+bind x t | t == TVar (LIdent x) = return emptySubst
+         | occursCheck x t = throwError $ InfiniteType x t
+         | otherwise = return $ Map.singleton x t
+
+unify :: Type -> Type -> TCM Subst
+unify t1 t2 | t1 == t2 = return emptySubst
+unify (TVar (LIdent x)) t = bind x t
+unify t (TVar (LIdent x)) = bind x t
+unify (TArr ll lr) (TArr rl rr) = do
+  sl <- unify ll rl
+  sr <- unify (sl |-> lr) (sl |-> rr)
+  return $ sr <@> sl
+unify t1 t2 = throwError $ Mismatch t1 t2
+
+solve :: TCM Subst
+solve = do
+  subs <- gets tcsSubst
+  cons <- gets constraints
+  case cons of
+    Seq.Empty -> return subs
+    (t1, t2) Seq.:<| cs -> do
+      subs' <- unify t1 t2
+      state <- get
+      put state { tcsSubst = subs' <@> subs, constraints = subs' |-> cs }
+--      solve
+      return $ subs' <@> subs
+
+typeOf :: Expr -> TCM Type
+typeOf expr = do
+  t <- infer expr
+  s <- solve
+  return $ s |-> t
+  --return t
