@@ -14,10 +14,10 @@ import Environment
 
 
 typeInt :: Type
-typeInt = TType $ Constr (UIdent "Int") []
+typeInt = TConstr $ Constr (UIdent "Int") []
 
 typeBool :: Type
-typeBool = TType $ Constr (UIdent "Bool") []
+typeBool = TConstr $ Constr (UIdent "Bool") []
 
 {-
 defineType :: TypeDef -> StateT Env (ErrorT InterpretError Identity) ()
@@ -28,7 +28,7 @@ defineType (TypeDef (UIdent t) params constrs) = do
 -}
 
 declare :: Decl -> StateT Env (ErrorT InterpretError Identity) ()
-declare (Decl (LIdent f) args expr t) = do
+declare (DFunc (LIdent f) args expr t) = do
   let tf = foldr (TArr) t $ map (\(Arg _ ta) -> ta) args
   nenv <- gets (insertType f tf)
   StateT (\_ -> fmap (\_ -> ((), nenv)) (runReaderT (checkType (prepareFunc f args expr) tf) nenv))
@@ -101,3 +101,4 @@ typeOfBinOp targ tres lexpr rexpr = do
   if (tl, tr) == (targ, targ)
     then return $ tres
     else lift $ throwError "Incorrect type for infix expression"
+

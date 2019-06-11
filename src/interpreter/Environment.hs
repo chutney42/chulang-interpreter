@@ -14,9 +14,13 @@ type InterpretError = String
 
 type LazyValue = (Env, Expr)
 
-data Env = Env { lazyValueEnv :: M.Map String LazyValue,
-                 typeEnv :: M.Map String Type }
-         deriving (Eq, Ord, Read)
+type LazyValueEnv = M.Map String LazyValue
+
+type TypeEnv = M.Map String Type
+
+data Env = Env { lazyValueEnv :: LazyValueEnv,
+                 typeEnv :: TypeEnv }
+  deriving (Eq, Ord, Read)
 
 insertLazyValue :: String -> LazyValue -> Env -> Env
 insertLazyValue s v env = env { lazyValueEnv = M.insert s v (lazyValueEnv env) }
@@ -40,17 +44,15 @@ lookupByName x lookupFunc notFoundMessage = do
     Just tx -> return tx
     Nothing -> lift $ throwError $ notFoundMessage x
 
-prepareFunc :: String -> [Arg] -> Expr -> Expr
-prepareFunc f args expr = case args of
-  [] -> expr
-  (x:xs) -> ELambda x xs expr
+--prepareFunc :: String -> [Arg] -> Expr -> Expr
+--prepareFunc f args expr = case args of
+--  [] -> expr
+--  (x:xs) -> ELambda x xs expr
 
-prepareConstr :: Constr -> (String, Expr)
-prepareConstr (Constr ic@(UIdent c) p) = (c, prepareFunc c args expr)
-  where n = length p
-        pom = map (\a-> LIdent ('x':(show a))) [0..(n - 1)]
-        args = map (\(a, t)-> Arg a t) $ zip pom p
-        vars = map (EVar) pom
-        expr = EData ic vars 
-
-
+--prepareConstr :: Constr -> (String, Expr)
+--prepareConstr (Constr ic@(UIdent c) p) = (c, prepareFunc c args expr)
+--  where n = length p
+--        pom = map (\a-> LIdent ('x':(show a))) [0..(n - 1)]
+--        args = map (\(a, t)-> Arg a t) $ zip pom p
+--        vars = map (EVar) pom
+--        expr = EData ic vars

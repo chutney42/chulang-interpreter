@@ -125,7 +125,8 @@ instance Print [Instr] where
 
 instance Print Decl where
   prt i e = case e of
-    Decl lident args expr type_ -> prPrec i 0 (concatD [prt 0 lident, prt 0 args, doc (showString "="), prt 0 expr, doc (showString ":"), prt 0 type_])
+    DVar lident expr -> prPrec i 0 (concatD [prt 0 lident, doc (showString "="), prt 0 expr])
+    DFunc lident args expr -> prPrec i 0 (concatD [prt 0 lident, prt 0 args, doc (showString "="), prt 0 expr])
   prtList _ [] = concatD []
   prtList _ [x] = concatD [prt 0 x]
   prtList _ (x:xs) = concatD [prt 0 x, doc (showString ","), prt 0 xs]
@@ -150,7 +151,7 @@ instance Print Type where
   prt i e = case e of
     TArr type_1 type_2 -> prPrec i 0 (concatD [prt 2 type_1, doc (showString "->"), prt 0 type_2])
     TVar lident -> prPrec i 2 (concatD [prt 0 lident])
-    TType constr -> prPrec i 2 (concatD [prt 0 constr])
+    TConstr constr -> prPrec i 2 (concatD [prt 0 constr])
   prtList _ [] = concatD []
   prtList _ (x:xs) = concatD [prt 0 x, prt 0 xs]
 
@@ -159,8 +160,8 @@ instance Print [Type] where
 
 instance Print Arg where
   prt i e = case e of
-    Arg lident type_ -> prPrec i 0 (concatD [prt 0 lident, doc (showString ":"), prt 0 type_])
-  prtList _ [] = concatD []
+    Arg lident -> prPrec i 0 (concatD [prt 0 lident])
+  prtList _ [x] = concatD [prt 0 x]
   prtList _ (x:xs) = concatD [prt 0 x, prt 0 xs]
 
 instance Print [Arg] where
@@ -195,7 +196,7 @@ instance Print Boolean where
 
 instance Print Expr where
   prt i e = case e of
-    ELambda arg args expr -> prPrec i 0 (concatD [doc (showString "\\"), prt 0 arg, prt 0 args, doc (showString "."), prt 0 expr])
+    ELambda args expr -> prPrec i 0 (concatD [doc (showString "\\"), prt 0 args, doc (showString "."), prt 0 expr])
     ELet decls expr -> prPrec i 0 (concatD [doc (showString "let"), prt 0 decls, doc (showString "in"), prt 0 expr])
     EIfte expr1 expr2 expr3 -> prPrec i 0 (concatD [doc (showString "if"), prt 0 expr1, doc (showString "then"), prt 0 expr2, doc (showString "else"), prt 0 expr3])
     EMatch expr matchings -> prPrec i 0 (concatD [doc (showString "match"), prt 0 expr, doc (showString "with"), prt 0 matchings])

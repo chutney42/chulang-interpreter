@@ -28,7 +28,8 @@ transInstr x = case x of
   IExpr expr -> failure x
 transDecl :: Decl -> Result
 transDecl x = case x of
-  Decl lident args expr type_ -> failure x
+  DVar lident expr -> failure x
+  DFunc lident args expr -> failure x
 transTypeDef :: TypeDef -> Result
 transTypeDef x = case x of
   TypeDef uident lidents constrs -> failure x
@@ -39,10 +40,10 @@ transType :: Type -> Result
 transType x = case x of
   TArr type_1 type_2 -> failure x
   TVar lident -> failure x
-  TType constr -> failure x
+  TConstr constr -> failure x
 transArg :: Arg -> Result
 transArg x = case x of
-  Arg lident type_ -> failure x
+  Arg lident -> failure x
 transPattern :: Pattern -> Result
 transPattern x = case x of
   PConstr uident patterns -> failure x
@@ -59,7 +60,7 @@ transBoolean x = case x of
   BFalse -> failure x
 transExpr :: Expr -> Result
 transExpr x = case x of
-  ELambda arg args expr -> failure x
+  ELambda args expr -> failure x
   ELet decls expr -> failure x
   EIfte expr1 expr2 expr3 -> failure x
   EMatch expr matchings -> failure x

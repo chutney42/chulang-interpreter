@@ -7,7 +7,7 @@ import Control.Monad.Identity
 
 import AbsGrammar 
 import Environment
-import qualified TypeChecker as T
+--import qualified TypeChecker as T
 import Evaluator
 
 interpret :: Program -> Either InterpretError [Maybe (Value, Type)]
@@ -23,12 +23,12 @@ interpretInstr (IDecl decl) = do
   declare decl
   return Nothing
 
-interpretInstr (IType def) = do
+--interpretInstr (IType def) = do
   --T.defineType def
-  defineType def
-  return Nothing
+--  defineType def
+--  return Nothing
 
 interpretInstr (IExpr expr) = do
   --t <- StateT $ \env->(fmap (\x->(x, env)) (runReaderT (T.typeOf expr) env))
   v <- StateT $ \env->(fmap (\x->(x, env)) (runReaderT (evaluate expr) env))
-  return $ Just (v, TType (Constr (UIdent "TODO") []))
+  return $ Just (v, TConstr (Constr (UIdent "TODO") []))

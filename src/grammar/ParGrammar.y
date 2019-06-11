@@ -24,28 +24,27 @@ import ErrM
   '->' { PT _ (TS _ 9) }
   '.' { PT _ (TS _ 10) }
   '/' { PT _ (TS _ 11) }
-  ':' { PT _ (TS _ 12) }
-  ';' { PT _ (TS _ 13) }
-  '<' { PT _ (TS _ 14) }
-  '<=' { PT _ (TS _ 15) }
-  '=' { PT _ (TS _ 16) }
-  '==' { PT _ (TS _ 17) }
-  '>' { PT _ (TS _ 18) }
-  '>=' { PT _ (TS _ 19) }
-  'False' { PT _ (TS _ 20) }
-  'True' { PT _ (TS _ 21) }
-  '\\' { PT _ (TS _ 22) }
-  '_' { PT _ (TS _ 23) }
-  'else' { PT _ (TS _ 24) }
-  'if' { PT _ (TS _ 25) }
-  'in' { PT _ (TS _ 26) }
-  'let' { PT _ (TS _ 27) }
-  'match' { PT _ (TS _ 28) }
-  'then' { PT _ (TS _ 29) }
-  'type' { PT _ (TS _ 30) }
-  'with' { PT _ (TS _ 31) }
-  '|' { PT _ (TS _ 32) }
-  '||' { PT _ (TS _ 33) }
+  ';' { PT _ (TS _ 12) }
+  '<' { PT _ (TS _ 13) }
+  '<=' { PT _ (TS _ 14) }
+  '=' { PT _ (TS _ 15) }
+  '==' { PT _ (TS _ 16) }
+  '>' { PT _ (TS _ 17) }
+  '>=' { PT _ (TS _ 18) }
+  'False' { PT _ (TS _ 19) }
+  'True' { PT _ (TS _ 20) }
+  '\\' { PT _ (TS _ 21) }
+  '_' { PT _ (TS _ 22) }
+  'else' { PT _ (TS _ 23) }
+  'if' { PT _ (TS _ 24) }
+  'in' { PT _ (TS _ 25) }
+  'let' { PT _ (TS _ 26) }
+  'match' { PT _ (TS _ 27) }
+  'then' { PT _ (TS _ 28) }
+  'type' { PT _ (TS _ 29) }
+  'with' { PT _ (TS _ 30) }
+  '|' { PT _ (TS _ 31) }
+  '||' { PT _ (TS _ 32) }
 
 L_ident  { PT _ (TV $$) }
 L_integ  { PT _ (TI $$) }
@@ -76,7 +75,8 @@ ListInstr :: { [Instr] }
 ListInstr : {- empty -} { [] }
           | ListInstr Instr ';' { flip (:) $1 $2 }
 Decl :: { Decl }
-Decl : LIdent ListArg '=' Expr ':' Type { AbsGrammar.Decl $1 (reverse $2) $4 $6 }
+Decl : LIdent '=' Expr { AbsGrammar.DVar $1 $3 }
+     | LIdent ListArg '=' Expr { AbsGrammar.DFunc $1 $2 $4 }
 ListDecl :: { [Decl] }
 ListDecl : {- empty -} { [] }
          | Decl { (:[]) $1 }
@@ -92,16 +92,16 @@ Type :: { Type }
 Type : Type2 '->' Type { AbsGrammar.TArr $1 $3 } | Type1 { $1 }
 Type2 :: { Type }
 Type2 : LIdent { AbsGrammar.TVar $1 }
-      | Constr { AbsGrammar.TType $1 }
+      | Constr { AbsGrammar.TConstr $1 }
       | '(' Type ')' { $2 }
 Type1 :: { Type }
 Type1 : Type2 { $1 }
 ListType :: { [Type] }
 ListType : {- empty -} { [] } | ListType Type { flip (:) $1 $2 }
 Arg :: { Arg }
-Arg : LIdent ':' Type { AbsGrammar.Arg $1 $3 }
+Arg : LIdent { AbsGrammar.Arg $1 }
 ListArg :: { [Arg] }
-ListArg : {- empty -} { [] } | ListArg Arg { flip (:) $1 $2 }
+ListArg : Arg { (:[]) $1 } | Arg ListArg { (:) $1 $2 }
 Pattern :: { Pattern }
 Pattern : UIdent ListPattern { AbsGrammar.PConstr $1 (reverse $2) }
         | Pattern1 { $1 }
@@ -125,7 +125,7 @@ Boolean :: { Boolean }
 Boolean : 'True' { AbsGrammar.BTrue }
         | 'False' { AbsGrammar.BFalse }
 Expr :: { Expr }
-Expr : '\\' Arg ListArg '.' Expr { AbsGrammar.ELambda $2 (reverse $3) $5 }
+Expr : '\\' ListArg '.' Expr { AbsGrammar.ELambda $2 $4 }
      | 'let' ListDecl 'in' Expr { AbsGrammar.ELet $2 $4 }
      | 'if' Expr 'then' Expr 'else' Expr { AbsGrammar.EIfte $2 $4 $6 }
      | 'match' Expr 'with' ListMatching { AbsGrammar.EMatch $2 $4 }

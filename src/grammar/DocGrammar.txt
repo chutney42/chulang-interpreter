@@ -40,12 +40,12 @@ The reserved words used in grammar are the following:
   | ``type`` | ``with`` |  | 
 
 The symbols used in grammar are the following:
-  | ; | = | : | ,
-  | | | -> | ( | )
-  | _ | \ | . | ||
-  | && | == | != | <=
-  | < | > | >= | +
-  | - | * | / | 
+  | ; | = | , | |
+  | -> | ( | ) | _
+  | \ | . | || | &&
+  | == | != | <= | <
+  | > | >= | + | -
+  | * | / |  | 
 
 ===Comments===
 Single-line comments begin with //.Multiple-line comments are  enclosed with /* and */.
@@ -68,7 +68,8 @@ All other symbols are terminals.
   |  |  **|**  | //Expr// 
   | //[Instr]// | -> | **eps**
   |  |  **|**  | //Instr// ``;`` //[Instr]// 
-  | //Decl// | -> | //LIdent// //[Arg]// ``=`` //Expr// ``:`` //Type// 
+  | //Decl// | -> | //LIdent// ``=`` //Expr// 
+  |  |  **|**  | //LIdent// //[Arg]// ``=`` //Expr// 
   | //[Decl]// | -> | **eps**
   |  |  **|**  | //Decl// 
   |  |  **|**  | //Decl// ``,`` //[Decl]// 
@@ -84,8 +85,8 @@ All other symbols are terminals.
   | //Type1// | -> | //Type2// 
   | //[Type]// | -> | **eps**
   |  |  **|**  | //Type// //[Type]// 
-  | //Arg// | -> | //LIdent// ``:`` //Type// 
-  | //[Arg]// | -> | **eps**
+  | //Arg// | -> | //LIdent// 
+  | //[Arg]// | -> | //Arg// 
   |  |  **|**  | //Arg// //[Arg]// 
   | //Pattern// | -> | //UIdent// //[Pattern]// 
   |  |  **|**  | //Pattern1// 
@@ -102,7 +103,7 @@ All other symbols are terminals.
   |  |  **|**  | //Matching// ``|`` //[Matching]// 
   | //Boolean// | -> | ``True`` 
   |  |  **|**  | ``False`` 
-  | //Expr// | -> | ``\`` //Arg// //[Arg]// ``.`` //Expr// 
+  | //Expr// | -> | ``\`` //[Arg]// ``.`` //Expr// 
   |  |  **|**  | ``let`` //[Decl]// ``in`` //Expr// 
   |  |  **|**  | ``if`` //Expr// ``then`` //Expr// ``else`` //Expr// 
   |  |  **|**  | ``match`` //Expr// ``with`` //[Matching]// 

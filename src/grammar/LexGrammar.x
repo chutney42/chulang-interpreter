@@ -21,7 +21,7 @@ $i = [$l $d _ ']          -- identifier character
 $u = [\0-\255]          -- universal: any character
 
 @rsyms =    -- symbols and non-identifier-like reserved words
-   \; | \= | \: | \, | \| | \- \> | \( | \) | \_ | \\ | \. | \| \| | \& \& | \= \= | \! \= | \< \= | \< | \> | \> \= | \+ | \- | \* | \/
+   \; | \= | \, | \| | \- \> | \( | \) | \_ | \\ | \. | \| \| | \& \& | \= \= | \! \= | \< \= | \< | \> | \> \= | \+ | \- | \* | \/
 
 :-
 "//" [.]* ; -- Toss single line comments
@@ -107,7 +107,7 @@ eitherResIdent tv s = treeFind resWords
                               | s == a = t
 
 resWords :: BTree
-resWords = b "==" 17 (b "->" 9 (b "*" 5 (b "(" 3 (b "&&" 2 (b "!=" 1 N N) N) (b ")" 4 N N)) (b "," 7 (b "+" 6 N N) (b "-" 8 N N))) (b ";" 13 (b "/" 11 (b "." 10 N N) (b ":" 12 N N)) (b "<=" 15 (b "<" 14 N N) (b "=" 16 N N)))) (b "in" 26 (b "\\" 22 (b "False" 20 (b ">=" 19 (b ">" 18 N N) N) (b "True" 21 N N)) (b "else" 24 (b "_" 23 N N) (b "if" 25 N N))) (b "type" 30 (b "match" 28 (b "let" 27 N N) (b "then" 29 N N)) (b "|" 32 (b "with" 31 N N) (b "||" 33 N N))))
+resWords = b ">" 17 (b "->" 9 (b "*" 5 (b "(" 3 (b "&&" 2 (b "!=" 1 N N) N) (b ")" 4 N N)) (b "," 7 (b "+" 6 N N) (b "-" 8 N N))) (b "<" 13 (b "/" 11 (b "." 10 N N) (b ";" 12 N N)) (b "=" 15 (b "<=" 14 N N) (b "==" 16 N N)))) (b "in" 25 (b "\\" 21 (b "False" 19 (b ">=" 18 N N) (b "True" 20 N N)) (b "else" 23 (b "_" 22 N N) (b "if" 24 N N))) (b "type" 29 (b "match" 27 (b "let" 26 N N) (b "then" 28 N N)) (b "|" 31 (b "with" 30 N N) (b "||" 32 N N))))
    where b s n = let bs = id s
                   in B bs (TS bs n)
 

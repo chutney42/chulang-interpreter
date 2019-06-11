@@ -16,7 +16,7 @@ data Program = Prog [Instr]
 data Instr = IDecl Decl | IType TypeDef | IExpr Expr
   deriving (Eq, Ord, Show, Read)
 
-data Decl = Decl LIdent [Arg] Expr Type
+data Decl = DVar LIdent Expr | DFunc LIdent [Arg] Expr
   deriving (Eq, Ord, Show, Read)
 
 data TypeDef = TypeDef UIdent [LIdent] [Constr]
@@ -25,10 +25,10 @@ data TypeDef = TypeDef UIdent [LIdent] [Constr]
 data Constr = Constr UIdent [Type]
   deriving (Eq, Ord, Show, Read)
 
-data Type = TArr Type Type | TVar LIdent | TType Constr
+data Type = TArr Type Type | TVar LIdent | TConstr Constr
   deriving (Eq, Ord, Show, Read)
 
-data Arg = Arg LIdent Type
+data Arg = Arg LIdent
   deriving (Eq, Ord, Show, Read)
 
 data Pattern
@@ -46,7 +46,7 @@ data Boolean = BTrue | BFalse
   deriving (Eq, Ord, Show, Read)
 
 data Expr
-    = ELambda Arg [Arg] Expr
+    = ELambda [Arg] Expr
     | ELet [Decl] Expr
     | EIfte Expr Expr Expr
     | EMatch Expr [Matching]

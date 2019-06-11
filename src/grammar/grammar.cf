@@ -15,7 +15,8 @@ IType. Instr ::= "type" TypeDef ;
 IExpr. Instr ::= Expr ;
 terminator Instr ";" ;
 
-Decl. Decl ::= LIdent [Arg] "=" Expr ":" Type ;
+DVar. Decl ::= LIdent "=" Expr ;
+DFunc. Decl ::= LIdent [Arg] "=" Expr ; -- ":" Type ;
 separator Decl "," ;
 
 TypeDef. TypeDef ::= UIdent [LIdent] "=" [Constr] ; 
@@ -28,12 +29,15 @@ TArr. Type ::= Type2 "->" Type ;
 --TInt. Type2 ::= "Int" ;
 --TBool. Type2 ::= "Bool" ;
 TVar. Type2 ::= LIdent ;
-TType. Type2 ::= Constr;
+TConstr. Type2 ::= Constr;
 coercions Type 2 ;
 separator Type "" ;
 
-Arg. Arg ::= LIdent ":" Type ;
-separator Arg "" ;
+--Arg. Arg ::= LIdent ":" Type ;
+--separator Arg "" ;
+
+Arg. Arg ::= LIdent ;
+separator nonempty Arg "" ;
 
 
 --PList. Pattern ::= "[" [Pattern] "]" ;
@@ -51,7 +55,7 @@ separator nonempty Matching "|" ;
 BTrue. Boolean ::= "True" ;
 BFalse. Boolean ::= "False" ;
 
-ELambda. Expr ::= "\\" Arg [Arg] "." Expr ;
+ELambda. Expr ::= "\\" [Arg] "." Expr ;
 ELet. Expr ::= "let" [Decl] "in" Expr ;
 EIfte. Expr ::= "if" Expr "then" Expr "else" Expr ;
 EMatch. Expr ::= "match" Expr "with" [Matching] ;

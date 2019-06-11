@@ -1,4 +1,4 @@
-module Evaluator( evaluate, declare, defineType, Value(..)) where
+module Evaluator( evaluate, declare, Value(..)) where
 
 import Data.Either
 
@@ -14,8 +14,8 @@ import Environment
 data Value
   = VInt Integer
   | VBool Bool
-  | VFunc String LazyValue
-  | VData String [LazyValue]
+  | VClosure [Arg] Expr Env
+  | VConstr String [LazyValue]
   deriving (Eq, Ord, Read)
 
 
@@ -23,8 +23,8 @@ instance Show Value where
   show (VInt i) = show i
   show (VBool b) = show b
 --  show (VList l) = show l
-  show (VFunc s (_, e)) = "<function>"
-  show (VData s lvals) =
+  show (VClosure _ _ _) = "function"
+  show (VConstr s lvals) =
     let x = runIdentity $ runErrorT $ runReaderT (mapM evaluateLazyValue lvals) initEnv
     in case x of
       Right r -> s ++ show r
@@ -34,19 +34,24 @@ instance Show Value where
 evaluateLazyValue :: LazyValue -> ReaderT Env (ErrorT InterpretError Identity) Value
 evaluateLazyValue (env, expr) = local (\_->env) $ evaluate expr
 
-
 declare :: Decl -> StateT Env (ErrorT InterpretError Identity) ()
-declare (Decl (LIdent f) args expr _) = do
+
+declare (DVar (LIdent x) expr) = do
   env <- get
-  let nenv = insertLazyValue f (nenv, prepareFunc f args expr) env
+  let nenv = insertLazyValue x (nenv, expr) env
+  put nenv
+
+declare (DFunc (LIdent f) args expr) = do
+  env <- get
+  let nenv = insertLazyValue f (nenv, ELambda args expr) env
   put nenv
 
 
-defineType :: TypeDef -> StateT Env (ErrorT InterpretError Identity) ()
-defineType (TypeDef (UIdent t) params constrs) = do
-  let nconstrs = map (prepareConstr) constrs
-  env <- get
-  put $ foldr (\(key, expr) acc -> insertLazyValue key (env, expr) acc) env nconstrs
+--defineType :: TypeDef -> StateT Env (ErrorT InterpretError Identity) ()
+--defineType (TypeDef (UIdent t) params constrs) = do
+--  let nconstrs = map (prepareConstr) constrs
+--  env <- get
+--  put $ foldr (\(key, expr) acc -> insertLazyValue key (env, expr) acc) env nconstrs
 
 
 evaluate :: Expr -> ReaderT Env (ErrorT InterpretError Identity) Value
@@ -57,7 +62,7 @@ evaluate (EConstr (UIdent x)) = lookupByName x lookupLazyValue ("Constructor not
 
 evaluate (EData (UIdent c) exprs) = do
   env <- ask
-  return $ VData c $ map ((,) env) exprs
+  return $ VConstr c $ map ((,) env) exprs
 
 evaluate (EBool b) =
   case b of
@@ -66,18 +71,16 @@ evaluate (EBool b) =
 
 evaluate (EInt a) = return (VInt a)
 
-evaluate (ELambda (Arg (LIdent x) _) l expr) = do
+evaluate (ELambda args expr) = do
   env <- ask
-  case l of
-    [] -> return $ VFunc x (env, expr)
-    (h:t) -> return $ VFunc x (env, (ELambda h t expr))
+  return $ VClosure args expr env
 
 evaluate (EApply lexpr rexpr) = do
-  f <- evaluate lexpr
-  case f of
-    VFunc x (fenv, fexpr) -> local (\env -> insertLazyValue x (env, rexpr) fenv)
-                             (evaluate fexpr)
-    _ -> lift $ throwError "Cannot apply expression. It must be a function."
+  VClosure args@((Arg (LIdent x)):xs) fexpr fenv <- evaluate lexpr
+  fenv' <- asks (\env -> insertLazyValue x (env, rexpr) fenv)
+  case xs of
+    [] -> local (\_ -> fenv') $ evaluate fexpr
+    _ -> return $ VClosure args fexpr fenv'
 
 evaluate (ELet decls expr) = do
   env <- ReaderT (execStateT (forM_ decls declare))
@@ -87,21 +90,18 @@ evaluate (EIfte bexpr lexpr rexpr) = do
   vb <- evaluate bexpr
   case vb of
     VBool b -> if b then evaluate lexpr else evaluate rexpr
-    _ -> lift $ throwError ("Condition must be of type bool")
 
 evaluate (EOr lexpr rexpr) = do
   vl <- evaluate lexpr
   case vl of
     VBool True -> return $ VBool True
     VBool False -> evaluate rexpr
-    _ -> lift $ throwError "Expressions must be of type bool"
 
 evaluate (EAnd lexpr rexpr) = do
   vl <- evaluate lexpr
   case vl of
     VBool False -> return $ VBool False
     VBool True -> evaluate rexpr
-    _ -> lift $ throwError "Expressions must be of type bool"
 
 evaluate (EEq lexpr rexpr) = do
   vl <- evaluate lexpr
@@ -126,7 +126,6 @@ evaluate (EDiv lexpr rexpr) = do
   case (vl, vr) of
     (_, VInt 0) -> lift $ throwError "Divide by zero"
     (VInt l, VInt r) -> return $ VInt (div l r)
-    _ -> lift $ throwError "Incorrect type for arithmetic expression"
 
 evaluate (EMatch expr matchings) = do
   case matchings of
@@ -156,11 +155,10 @@ matchPattern lv (PVar (LIdent p)) = do
 matchPattern lv (PConstr (UIdent p) pats) = do
   val <- StateT (\e -> fmap (\x -> (x, e)) $ runReaderT (evaluateLazyValue lv) e)
   case val of
-    VData v vs -> if v == p
+    VConstr v vs -> if v == p
       then foldM (\b (av, ap) -> if b then matchPattern av ap else return False) True (zip vs pats)
       else return False
     _ -> return False
-
 
 evalBinOp :: (Integer -> Integer -> Value) -> Expr -> Expr -> ReaderT Env (ErrorT InterpretError Identity) Value
 evalBinOp binOp lexpr rexpr = do
@@ -168,6 +166,3 @@ evalBinOp binOp lexpr rexpr = do
   vr <- evaluate rexpr
   case (vl, vr) of
     (VInt l, VInt r) -> return $ binOp l r
-    _ -> lift $ throwError "Incorrect type for arithmetic expression"
-
-
