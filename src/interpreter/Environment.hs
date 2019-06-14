@@ -10,7 +10,6 @@ import Control.Monad.Identity
 import AbsGrammar
 
 
-type InterpretError = String
 
 type LazyValue = (Env, Expr)
 

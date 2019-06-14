@@ -15,29 +15,32 @@ import AbsGrammar
 --import Environment
 
 
-type Env = Map.Map String Scheme
+type TypeEnv = Map.Map String Scheme
 
-initEnv :: Env
-initEnv = Map.empty
+initTypeEnv :: TypeEnv
+initTypeEnv = Map.empty
 
 data TypeError
   = Mismatch Type Type
   | InfiniteType String Type
-  | NotFunction Type
   | NotInScope String
-  deriving (Eq, Show)
+
+instance Show TypeError where
+  show (Mismatch t1 t2) = "Type mismatch: " ++ (prettyType t1) ++ " with " ++ (prettyType t2)
+  show (InfiniteType x t) = "Cannot construct Infinite type: " ++ x ++ " ~ " ++ (prettyType t)
+  show (NotInScope x) = "Variable not in scope: " ++ x
 
 data Scheme = ForAll [String] Type
 
---type TCM a = ExceptT TypeError (StateT TcState (Reader Env)) a
-type TCM a = StateT TcState (ReaderT Env (ExceptT TypeError (Identity))) a
+type TCM a = StateT TcState (ReaderT TypeEnv (ExceptT TypeError (Identity))) a
+
 data TcState = TcState {
   tcsNS :: NameSupply, -- dostawca nazw
   tcsSubst :: Subst, -- podstawienie
   constraints :: Constraints -- równania
 } deriving Show
 
---type TCM s a = StateT s (ReaderT Env (ExceptT TypeError (Identity))) a
+type STM a = StateT TypeEnv (ExceptT TypeError (Identity)) a
 
 initTcState :: TcState
 initTcState = TcState {
@@ -65,7 +68,7 @@ instance Substitutable Type where
   (|->) s t = case t of
     TConstr c -> TConstr c
     TVar (LIdent x) -> Map.findWithDefault t x s
-    TArr l r -> TArr (s |-> l) (s |-> l)
+    TArr l r -> TArr (s |-> l) (s |-> r)
   ftv t = case t of
     TConstr c -> Set.empty
     TVar (LIdent x) -> Set.singleton x
@@ -95,10 +98,10 @@ infix 4 <@>
 s1 <@> s2 = Map.map (s1 |->) s2 `Map.union` s1
 
 evalTCM :: TCM a -> Either TypeError a
-evalTCM tcm = runIdentity$ runExceptT $ runReaderT (evalStateT tcm initTcState) initEnv
+evalTCM tcm = runIdentity$ runExceptT $ runReaderT (evalStateT tcm initTcState) initTypeEnv
 
 runTCM :: TCM a -> Either TypeError (a, TcState)
-runTCM tcm = runIdentity$ runExceptT $ runReaderT (runStateT tcm initTcState) initEnv
+runTCM tcm = runIdentity$ runExceptT $ runReaderT (runStateT tcm initTcState) initTypeEnv
 
 addConstraint :: Type -> Type -> TCM ()
 addConstraint t1 t2 = do
@@ -135,8 +138,8 @@ generalize t = do
   let xs = Set.toList $ Set.difference (ftv t) ftvEnv
   return $ ForAll xs t  
 
-infer :: Expr -> TCM Type
-infer expr = case expr of
+typeOf :: Expr -> TCM Type
+typeOf expr = case expr of
   EInt _ -> return int
   EBool _ -> return bool
   
@@ -152,62 +155,95 @@ infer expr = case expr of
     let expr' = case xs of
           [] -> expr
           _ -> ELambda xs expr
-    t <- local new $ infer expr'
+    t <- local new $ typeOf expr'
     return (TArr tv t)
-
+{-
   EApply lexpr rexpr -> do
-    ltype <- infer lexpr
-    rtype <- infer rexpr
+    ltype <- typeOf lexpr
+    rtype <- typeOf rexpr
     tv <- freshName
     addConstraint ltype (TArr rtype tv)
     return tv
+-}
+  EApply lexpr rexpr -> do
+    rtype <- typeOf rexpr
+    tv <- freshName
+    checkType lexpr (TArr rtype tv)
+    return tv
 
   ELet decls rexpr -> case decls of
-    [] -> infer rexpr
+    [] -> typeOf rexpr
     d:ds -> do
       let (x, lexpr) = case d of
             DVar (LIdent v) expr -> (v, expr)
             DFunc (LIdent f) args expr -> (f, ELambda args expr)
       env <- ask
-      ltype <- infer lexpr
+      ltype <- typeOf lexpr
       s <- generalize ltype
       let new = Map.insert x s
       let rexpr' = case ds of
             [] -> rexpr
             _ -> ELet ds rexpr
-      rtype <- local new $ infer rexpr'
+      rtype <- local new $ typeOf rexpr'
       return rtype
-
+{-
   EIfte bexpr lexpr rexpr -> do
-    bt <- infer bexpr
-    lt <- infer lexpr
-    rt <- infer rexpr
+    bt <- typeOf bexpr
+    lt <- typeOf lexpr
+    rt <- typeOf rexpr
     addConstraint bt bool
     addConstraint lt rt
     return lt
+-}
+  EIfte bexpr lexpr rexpr -> do
+    checkType bexpr bool
+    lt <- typeOf lexpr
+    checkType rexpr lt
 
-  EOr lexpr rexpr -> inferBinOp bool bool lexpr rexpr
-  EAnd lexpr rexpr -> inferBinOp bool bool lexpr rexpr
-  EEq lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  ENeq lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  ELeq lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  ELes lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  EGre lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  EGeq lexpr rexpr -> inferBinOp int bool lexpr rexpr
-  EAdd lexpr rexpr -> inferBinOp int int lexpr rexpr
-  ESub lexpr rexpr -> inferBinOp int int lexpr rexpr
-  EMul lexpr rexpr -> inferBinOp int int lexpr rexpr
-  EDiv lexpr rexpr -> inferBinOp int int lexpr rexpr
+  EOr lexpr rexpr -> checkType lexpr bool >> checkType rexpr bool >> return bool
+  EAnd lexpr rexpr -> checkType lexpr bool >> checkType rexpr bool >> return bool
+  EEq lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  ENeq lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  ELeq lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  ELes lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  EGre lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  EGeq lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return bool
+  EAdd lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
+  ESub lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
+  EMul lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
+  EDiv lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
+
+{-
+  EOr lexpr rexpr -> typeOfBinOp bool bool lexpr rexpr
+  EAnd lexpr rexpr -> typeOfBinOp bool bool lexpr rexpr
+  EEq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  ENeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  ELeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  ELes lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  EGre lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  EGeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
+  EAdd lexpr rexpr -> typeOfBinOp int int lexpr rexpr
+  ESub lexpr rexpr -> typeOfBinOp int int lexpr rexpr
+  EMul lexpr rexpr -> typeOfBinOp int int lexpr rexpr
+  EDiv lexpr rexpr -> typeOfBinOp int int lexpr rexpr
   
-inferBinOp :: Type -> Type -> Expr -> Expr -> TCM Type
-inferBinOp targ tres lexpr rexpr = do
-  lt <- infer lexpr
-  rt <- infer rexpr
+typeOfBinOp :: Type -> Type -> Expr -> Expr -> TCM Type
+typeOfBinOp targ tres lexpr rexpr = do
+  lt <- typeOf lexpr
+  rt <- typeOf rexpr
   tv <- freshName
   let t1 = TArr lt (TArr rt tv)
   let t2 = TArr targ (TArr targ tres)
   addConstraint t1 t2
   return tv
+-}
+checkType :: Expr -> Type -> TCM Type
+checkType expr typ = do
+  typ' <- typeOf expr
+  cs <- gets constraints
+  modify (\state -> state { constraints = (cs Seq.|> (typ, typ')) } )  
+  return typ'
+
 
 occursCheck :: String -> Type -> Bool
 occursCheck x t = Set.member x (ftv t)
@@ -237,12 +273,44 @@ solve = do
       subs' <- unify t1 t2
       state <- get
       put state { tcsSubst = subs' <@> subs, constraints = subs' |-> cs }
---      solve
-      return $ subs' <@> subs
+      solve
 
-typeOf :: Expr -> TCM Type
-typeOf expr = do
-  t <- infer expr
+infer :: Expr -> TCM Type
+infer expr = do
+  t <- typeOf expr
   s <- solve
   return $ s |-> t
-  --return t
+
+tcmToStm :: TCM a -> STM a
+tcmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT (evalStateT x initTcState) e
+
+typingInstr :: Instr -> STM Type
+typingInstr instr = case instr of
+  IDecl decl -> do
+    let (x, expr) = case decl of
+          DVar (LIdent v) xexpr -> (v, xexpr)
+          DFunc (LIdent f) args fexpr -> (f, ELambda args fexpr)
+    t <- tcmToStm $ infer expr
+    modify $ Map.insert x $ ForAll [] t
+    return t
+    
+  IExpr expr -> do
+    t <- tcmToStm $ infer expr
+    return t
+
+typingProgram :: Program -> STM [Type]
+typingProgram (Prog instrs) = forM instrs typingInstr
+
+typing :: Program -> TypeEnv -> Either TypeError ([Type], TypeEnv)
+typing p e = runIdentity $ runExceptT $ runStateT (typingProgram p) e
+
+-- recursive functions declaration type infernece
+-- variable normlaization
+
+prettyType :: Type -> String
+prettyType t = case t of
+  TVar (LIdent x) -> x
+  TConstr (Constr (UIdent con) tps) -> con ++ (unwords $ "" : (map prettyType tps))
+  TArr (TArr t1 t2) tr ->
+    "(" ++ prettyType t1 ++ " -> " ++ prettyType t2 ++ ") -> " ++ prettyType tr 
+  TArr tl tr -> prettyType tl ++ " -> " ++ prettyType tr 

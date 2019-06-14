@@ -1,34 +1,64 @@
-module Interpreter ( interpret ) where
+module Interpreter ( runInterpretOne, runInterpretMany ) where
+
+import Data.Maybe
+
+import System.IO
+import System.Environment
 
 import Control.Monad.State
 import Control.Monad.Reader
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.Identity
 
-import AbsGrammar 
-import Environment
---import qualified TypeChecker as T
+import AbsGrammar
+import LexGrammar
+import ParGrammar
+import ErrM
+
 import Evaluator
-
-interpret :: Program -> Either InterpretError [Maybe (Value, Type)]
-interpret p = runIdentity $ runErrorT $ evalStateT (interpretProgram p) initEnv
+import Inferrer
 
 
-interpretProgram :: Program -> StateT Env (ErrorT InterpretError Identity) [Maybe (Value, Type)]
-interpretProgram (Prog instrs) = forM instrs interpretInstr
+data Env = Env { valueEnv :: ValueEnv, typeEnv :: TypeEnv }
 
-interpretInstr :: Instr -> StateT Env (ErrorT InterpretError Identity) (Maybe (Value, Type))
-interpretInstr (IDecl decl) = do
-  --T.declare decl
-  declare decl
-  return Nothing
+initEnv :: Env
+initEnv = Env { valueEnv = initVEnv, typeEnv = initTypeEnv }
+  
+interpretOne :: String -> StateT Env IO ()
+interpretOne s = case pProgram (myLexer s) of
+  Bad e -> liftIO $ hPutStrLn stderr e
+  Ok p -> do
+    tenv <- gets typeEnv
+    case typing p tenv of
+      Left e -> liftIO $ hPrint stderr e
+      Right (ts, tenv') -> do
+        liftIO $ putStr $ unlines $ map prettyType ts
+        venv <- gets valueEnv
+        case execute p venv of
+          Left e -> liftIO $ hPrint stderr e
+          Right (mvals, venv') -> do
+            liftIO $ putStr $ unlines $ map (show . fromJust) $ filter isJust mvals
+            put $ Env venv' tenv'
+{-
+interpretOne :: String -> StateT Env IO ()
+interpretOne s = case pProgram (myLexer s) of
+  Bad e -> liftIO $ hPutStrLn stderr e
+  Ok p -> do
+    tenv <- gets typeEnv
+    venv <- gets valueEnv
+    case execute p venv of
+      Left e -> liftIO $ hPrint stderr e
+      Right (mval, venv') -> do
+        liftIO $ print mval
+        put $ Env venv' tenv
+-}
 
---interpretInstr (IType def) = do
-  --T.defineType def
---  defineType def
---  return Nothing
 
-interpretInstr (IExpr expr) = do
-  --t <- StateT $ \env->(fmap (\x->(x, env)) (runReaderT (T.typeOf expr) env))
-  v <- StateT $ \env->(fmap (\x->(x, env)) (runReaderT (evaluate expr) env))
-  return $ Just (v, TConstr (Constr (UIdent "TODO") []))
+interpretMany :: [String] -> StateT Env IO ()
+interpretMany ls = forM_ ls interpretOne
+
+runInterpretOne :: String -> IO ()
+runInterpretOne s = evalStateT (interpretOne s) initEnv
+
+runInterpretMany :: [String] -> IO ()
+runInterpretMany ls = evalStateT (interpretMany ls) initEnv

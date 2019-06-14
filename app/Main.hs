@@ -17,21 +17,21 @@ main = do
   case args of
     [] -> do
       contents <- getContents
-      parseAndRun contents
+      runInterpretMany $ lines contents
     [f] -> do
       handle <- openFile f ReadMode
       contents <- hGetContents handle
-      parseAndRun contents
+      runInterpretOne contents
       hClose handle
     _ -> hPutStrLn stderr "Too many arguments"
-
+{-
 parseAndRun :: String -> IO ()
 parseAndRun program =
   case pProgram (myLexer program) of
-    Ok p ->
-      case interpret p of
-        Right vals -> putStr $ unlines $ map showSomething $ filter isSomething vals
-          where isSomething x = case x of Nothing -> False ; _ -> True
-                showSomething (Just (v, t)) = show v ++ " : " ++ show t
-        Left e -> hPutStrLn stderr e
+    Ok p -> case interpret p of
+      Right vals -> putStr $ unlines $ map showSomething $ filter isSomething vals
+        where isSomething x = case x of Nothing -> False ; _ -> True
+              showSomething (Just (v, t)) = show v ++ " : " ++ show t
+      Left e -> hPutStrLn stderr e
     Bad e -> hPutStrLn stderr e
+-}
