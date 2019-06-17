@@ -3,13 +3,7 @@ module Main  where
 import System.IO
 import System.Environment
 
-import AbsGrammar
-import LexGrammar
-import ParGrammar
 import Interpreter
-import Environment
-import Evaluator
-import ErrM
 
 main :: IO ()
 main = do

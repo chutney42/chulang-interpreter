@@ -38,9 +38,10 @@ transConstr x = case x of
   Constr uident types -> failure x
 transType :: Type -> Result
 transType x = case x of
+  TPoly uident types -> failure x
   TArr type_1 type_2 -> failure x
   TVar lident -> failure x
-  TConstr constr -> failure x
+  TNull uident -> failure x
 transArg :: Arg -> Result
 transArg x = case x of
   Arg lident -> failure x
@@ -80,6 +81,6 @@ transExpr x = case x of
   EInt integer -> failure x
   EBool boolean -> failure x
   EVar lident -> failure x
-  EConstr uident -> failure x
-  EData uident exprs -> failure x
+  ECVar uident -> failure x
+  EConstr uident exprs -> failure x
 

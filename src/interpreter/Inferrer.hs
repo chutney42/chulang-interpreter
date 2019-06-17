@@ -12,23 +12,31 @@ import Control.Monad.Identity
 import Control.Monad.Except
 
 import AbsGrammar
---import Environment
 
+--type TypeEnv = Map.Map String Scheme
 
-type TypeEnv = Map.Map String Scheme
+type Arity = Int
 
-initTypeEnv :: TypeEnv
-initTypeEnv = Map.empty
+data TypeEnv = TEnv { varTypes :: Map.Map String Scheme,
+                      typeConstrs :: Map.Map String Arity }
 
 data TypeError
   = Mismatch Type Type
   | InfiniteType String Type
-  | NotInScope String
-
+  | VarNotInScope String
+  | ValConstrNotInScope String
+  | TypeConstrNotInScope String
+  | TypeVarNotInScope String
+  | ConflictingVars String
+  
 instance Show TypeError where
   show (Mismatch t1 t2) = "Type mismatch: " ++ (prettyType t1) ++ " with " ++ (prettyType t2)
-  show (InfiniteType x t) = "Cannot construct Infinite type: " ++ x ++ " ~ " ++ (prettyType t)
-  show (NotInScope x) = "Variable not in scope: " ++ x
+  show (InfiniteType x t) = "Cannot construct infinite type: " ++ x ++ " ~ " ++ (prettyType t)
+  show (VarNotInScope x) = "Variable not in scope: " ++ x
+  show (ValConstrNotInScope x) = "Value constructor not in scope: " ++ x
+  show (TypeConstrNotInScope x) = "Type constructor not in scope: " ++ x
+  show (TypeVarNotInScope x) = "Type variable not in scope: " ++ x
+  show (ConflictingVars x) = "Conficting definitions: " ++ x
 
 data Scheme = ForAll [String] Type
 
@@ -42,14 +50,10 @@ data TcState = TcState {
 
 type STM a = StateT TypeEnv (ExceptT TypeError (Identity)) a
 
-initTcState :: TcState
-initTcState = TcState {
-  tcsNS = NameSupply { counter = 0 },
-  tcsSubst = emptySubst,
-  constraints = Seq.empty
-}
+type RTM a = ReaderT TypeEnv (ExceptT TypeError (Identity)) a
 
 type Constraint = (Type, Type)
+
 type Constraints = Seq.Seq Constraint
 
 type Unifier = (Subst, Constraints)
@@ -58,7 +62,6 @@ data NameSupply = NameSupply { counter :: Int } deriving Show
 
 type Subst = Map.Map String Type
 
-
 infix 4 |->
 class Substitutable a where
   (|->) :: Subst -> a -> a
@@ -66,13 +69,15 @@ class Substitutable a where
 
 instance Substitutable Type where
   (|->) s t = case t of
-    TConstr c -> TConstr c
     TVar (LIdent x) -> Map.findWithDefault t x s
     TArr l r -> TArr (s |-> l) (s |-> r)
+    TNull c -> TNull c
+    TPoly c ts -> TPoly c (s |-> ts)
   ftv t = case t of
-    TConstr c -> Set.empty
     TVar (LIdent x) -> Set.singleton x
     TArr l r -> Set.union (ftv l) (ftv r)
+    TNull _ -> Set.empty
+    TPoly _ ts -> foldr (\x a -> Set.union (ftv x) a) Set.empty ts
 
 instance Substitutable Scheme where
   (|->) s (ForAll xs t) = let s' = foldr Map.delete s xs in ForAll xs $ s' |-> t
@@ -97,24 +102,31 @@ infix 4 <@>
 (<@>) :: Subst -> Subst -> Subst
 s1 <@> s2 = Map.map (s1 |->) s2 `Map.union` s1
 
-evalTCM :: TCM a -> Either TypeError a
-evalTCM tcm = runIdentity$ runExceptT $ runReaderT (evalStateT tcm initTcState) initTypeEnv
+initTypeEnv :: TypeEnv
+initTypeEnv =
+  TEnv { varTypes = Map.empty,-- Map.empty }
+         typeConstrs = Map.fromList [("Int", 0), ("Bool", 0)] }
 
-runTCM :: TCM a -> Either TypeError (a, TcState)
-runTCM tcm = runIdentity$ runExceptT $ runReaderT (runStateT tcm initTcState) initTypeEnv
+insertVarType :: String -> Scheme -> TypeEnv -> TypeEnv
+insertVarType x s te = te { varTypes = Map.insert x s (varTypes te) }
 
-addConstraint :: Type -> Type -> TCM ()
-addConstraint t1 t2 = do
-  let c = (t1, t2)
-  cs <- gets constraints
-  modify (\state -> state { constraints = (cs Seq.|> c) } )
-  return ()
+insertTypeConstr :: String -> Arity -> TypeEnv -> TypeEnv
+insertTypeConstr x a te = te { typeConstrs = Map.insert x a (typeConstrs te) }
+
+initTcState :: TcState
+initTcState = TcState {
+  tcsNS = NameSupply { counter = 0 },
+  tcsSubst = emptySubst,
+  constraints = Seq.empty
+}
 
 int :: Type
-int = TConstr $ Constr (UIdent "Int") []
+int = TNull $ UIdent "Int"
+--int = TConstr $ Constr (UIdent "Int") []
 
 bool :: Type
-bool = TConstr $ Constr (UIdent "Bool") []
+bool = TNull $ UIdent "Int"
+--bool = TConstr $ Constr (UIdent "Bool") []
 
 freshName :: TCM Type
 freshName = do
@@ -127,16 +139,25 @@ freshName = do
 
 instantiate :: Scheme -> TCM Type
 instantiate (ForAll xs t) = do
-  xs' <- mapM (\_ -> freshName) xs
+  xs' <- mapM (const freshName) xs
   let s = Map.fromList $ zip xs xs'
   return $ s |-> t
 
 generalize :: Type -> TCM Scheme
 generalize t = do
   env <- ask
-  let ftvEnv = ftv $ Map.elems env
+  let ftvEnv = ftv $ Map.elems $ varTypes env
   let xs = Set.toList $ Set.difference (ftv t) ftvEnv
-  return $ ForAll xs t  
+  return $ ForAll xs t
+
+declare :: Decl -> TCM Type
+declare decl = do
+  let (x, expr) = case decl of
+        DVar (LIdent v) expr -> (v, expr)
+        DFunc (LIdent f) args expr -> (f, ELambda args expr)
+  tv <- freshName
+  local (insertVarType x (ForAll [] tv)) $ checkType expr tv
+  
 
 typeOf :: Expr -> TCM Type
 typeOf expr = case expr of
@@ -144,27 +165,27 @@ typeOf expr = case expr of
   EBool _ -> return bool
   
   EVar (LIdent x) -> do
-    found <- asks $ Map.lookup x
+    found <- asks $ (Map.lookup x) . varTypes
     case found of
-      Nothing -> throwError $ NotInScope x
+      Nothing -> throwError $ VarNotInScope x
       Just s -> instantiate s
 
-  ELambda ((Arg (LIdent x)):xs) expr -> do
+  ECVar (UIdent x) -> do
+    found <- asks $ (Map.lookup x) . varTypes
+    case found of
+      Nothing -> throwError $ ValConstrNotInScope x
+      Just s -> instantiate s
+
+  ELambda (argx@(Arg (LIdent x)):xs) expr -> do
+    when (any (==argx) xs) $ throwError $ ConflictingVars x
     tv <- freshName
-    let new env = Map.insert x (ForAll [] tv) env
+    let new = insertVarType x (ForAll [] tv)
     let expr' = case xs of
           [] -> expr
           _ -> ELambda xs expr
     t <- local new $ typeOf expr'
     return (TArr tv t)
-{-
-  EApply lexpr rexpr -> do
-    ltype <- typeOf lexpr
-    rtype <- typeOf rexpr
-    tv <- freshName
-    addConstraint ltype (TArr rtype tv)
-    return tv
--}
+
   EApply lexpr rexpr -> do
     rtype <- typeOf rexpr
     tv <- freshName
@@ -174,27 +195,13 @@ typeOf expr = case expr of
   ELet decls rexpr -> case decls of
     [] -> typeOf rexpr
     d:ds -> do
-      let (x, lexpr) = case d of
-            DVar (LIdent v) expr -> (v, expr)
-            DFunc (LIdent f) args expr -> (f, ELambda args expr)
-      env <- ask
-      ltype <- typeOf lexpr
+      ltype <- declare d
       s <- generalize ltype
-      let new = Map.insert x s
-      let rexpr' = case ds of
-            [] -> rexpr
-            _ -> ELet ds rexpr
-      rtype <- local new $ typeOf rexpr'
+      let rexpr' = case ds of [] -> rexpr ; _ -> ELet ds rexpr
+      let x = case d of DVar (LIdent v) _ -> v ; DFunc (LIdent f) _ _ -> f
+      rtype <- local (insertVarType x s) $ typeOf rexpr'
       return rtype
-{-
-  EIfte bexpr lexpr rexpr -> do
-    bt <- typeOf bexpr
-    lt <- typeOf lexpr
-    rt <- typeOf rexpr
-    addConstraint bt bool
-    addConstraint lt rt
-    return lt
--}
+
   EIfte bexpr lexpr rexpr -> do
     checkType bexpr bool
     lt <- typeOf lexpr
@@ -213,37 +220,12 @@ typeOf expr = case expr of
   EMul lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
   EDiv lexpr rexpr -> checkType lexpr int >> checkType rexpr int >> return int
 
-{-
-  EOr lexpr rexpr -> typeOfBinOp bool bool lexpr rexpr
-  EAnd lexpr rexpr -> typeOfBinOp bool bool lexpr rexpr
-  EEq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  ENeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  ELeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  ELes lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  EGre lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  EGeq lexpr rexpr -> typeOfBinOp int bool lexpr rexpr
-  EAdd lexpr rexpr -> typeOfBinOp int int lexpr rexpr
-  ESub lexpr rexpr -> typeOfBinOp int int lexpr rexpr
-  EMul lexpr rexpr -> typeOfBinOp int int lexpr rexpr
-  EDiv lexpr rexpr -> typeOfBinOp int int lexpr rexpr
-  
-typeOfBinOp :: Type -> Type -> Expr -> Expr -> TCM Type
-typeOfBinOp targ tres lexpr rexpr = do
-  lt <- typeOf lexpr
-  rt <- typeOf rexpr
-  tv <- freshName
-  let t1 = TArr lt (TArr rt tv)
-  let t2 = TArr targ (TArr targ tres)
-  addConstraint t1 t2
-  return tv
--}
 checkType :: Expr -> Type -> TCM Type
 checkType expr typ = do
   typ' <- typeOf expr
   cs <- gets constraints
   modify (\state -> state { constraints = (cs Seq.|> (typ, typ')) } )  
   return typ'
-
 
 occursCheck :: String -> Type -> Bool
 occursCheck x t = Set.member x (ftv t)
@@ -254,14 +236,28 @@ bind x t | t == TVar (LIdent x) = return emptySubst
          | otherwise = return $ Map.singleton x t
 
 unify :: Type -> Type -> TCM Subst
-unify t1 t2 | t1 == t2 = return emptySubst
+--unify t1 t2 | t1 == t2 = return emptySubst
+unify (TNull l) (TNull r) | l == r = return emptySubst
+unify (TPoly l lts) (TPoly r rts) | l == r && length lts == length rts = unifyMany lts rts
+unify (TArr ll lr) (TArr rl rr) = unifyMany [ll, lr] [rl, rr]
 unify (TVar (LIdent x)) t = bind x t
 unify t (TVar (LIdent x)) = bind x t
+unify l r = throwError $ Mismatch l r
+
+unifyMany :: [Type] -> [Type] -> TCM Subst
+unifyMany [] [] = return emptySubst
+unifyMany (hl:tl) (hr:tr) = do
+  sh <- unify hl hr
+  st <- unifyMany (sh |-> tl) (sh |-> tr)
+  return $ st <@> sh
+--unifyMany l r = throwError $ Mismatch l r
+
+{-
 unify (TArr ll lr) (TArr rl rr) = do
   sl <- unify ll rl
   sr <- unify (sl |-> lr) (sl |-> rr)
   return $ sr <@> sl
-unify t1 t2 = throwError $ Mismatch t1 t2
+-}
 
 solve :: TCM Subst
 solve = do
@@ -279,38 +275,115 @@ infer :: Expr -> TCM Type
 infer expr = do
   t <- typeOf expr
   s <- solve
-  return $ s |-> t
+  return $ s |-> t  
 
+validateType :: Type -> RTM ()
+validateType typ = do
+  let notInScope x a e = case ((Map.lookup x) . typeConstrs) e of
+        Nothing -> True
+        Just a' -> (a /= a')
+  env <- ask
+  case typ of
+    TArr t1 t2 -> validateType t1 >> validateType t2
+    TVar (LIdent x) -> when (notInScope x (-1) env) $ throwError $ TypeVarNotInScope x
+    TNull (UIdent x) -> when (notInScope x 0 env) $ throwError $ TypeConstrNotInScope x
+    TPoly (UIdent x) ts -> do
+      when (notInScope x (length ts) env) $ throwError $ TypeConstrNotInScope x
+      forM_ ts validateType
+{-
+defineType :: typeDef -> RTM [Type]
+defineType (TypeDef typ vars constrs) = case vars of
+  lh@(LIdent h):t -> do
+      when (any (==lh) t) $ throwError $ ConflictingVars h
+      local (insertTypeConstr h (-1)) $ defineType (TypeDef typ t constrs)
+  [] -> do
+    env <- get
+    let validateConstr (Constr (UIdent c) ts) = forM_ ts validateType
+    local (const env) $ forM_ constrs validateConstr
+    return $ map (\(Constr (UIdent c) ts)->foldr TArr typ' ts) constrs
+-}
+    
+addVars :: [LIdent] -> RTM TypeEnv
+addVars vars = case vars of
+        [] -> ask
+        lh@(LIdent h):t -> do
+          when (any (==lh) t) $ throwError $ ConflictingVars h
+          local (insertTypeConstr h (-1)) $ addVars t
+
+defineType :: TypeDef -> RTM [Type]
+defineType (TypeDef typ vars constrs) = do
+  env <- addVars vars
+                        
+  --env <- gets insertTypeConstr typ (length vars)
+  --env' <- gets $ addvars (map (\(LIdent x)->x) vars) env
+  let validateConstr (Constr (UIdent c) ts) = forM_ ts validateType
+      typ' = case vars of [] -> TNull typ ; _ -> TPoly typ (map (\x->TVar x) vars)
+  local (const env) $ forM_ constrs validateConstr
+  return $ map (\(Constr (UIdent c) ts)->foldr TArr typ' ts) constrs
+
+{-  
+  let typ' = case vars of [] -> TNull typ ; _ -> TPoly typ vars
+      vars' = map (\(LIdent x)->x) vars
+      insertConstr (Constr (UIdent c) ts) =
+        insertVarType c $ (ForAll vars') $ foldr TArr typ' $ ts
+  return $ foldr (insertConstr env) constrs
+-}  
+  {-
+  let repeating l = case l of
+        [] -> Nothing
+        h:t -> if (any (==h) t) then (Just h) else repeating t
+      r = repeating vars
+  unless (isNothing r) $ throwError $ ConfictingVars $ fromJust r
+  let typ' = case vars of
+        [] -> TNull typ
+        _ -> TPoly typ vars
+  let vars' = map (\(L
+-}
 tcmToStm :: TCM a -> STM a
 tcmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT (evalStateT x initTcState) e
 
-typingInstr :: Instr -> STM Type
+rtmToStm :: RTM a -> STM a
+rtmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT x e
+
+typingInstr :: Instr -> STM [Type]
 typingInstr instr = case instr of
+  IType td@(TypeDef utyp@(UIdent typ) vars constrs) -> do
+    modify $ insertTypeConstr typ (length vars)
+    cts <- rtmToStm $ defineType td
+    let typ' = case vars of [] -> TNull utyp ; _ -> TPoly utyp (map (\x->TVar x) vars)
+        vars' = map (\(LIdent x)->x) vars
+        cnames = map (\(Constr (UIdent cn) _)->cn) constrs
+    forM_ (zip cnames cts) $ \(c, t)-> modify $ insertVarType c (ForAll vars' t)
+    return cts
+
   IDecl decl -> do
-    let (x, expr) = case decl of
-          DVar (LIdent v) xexpr -> (v, xexpr)
-          DFunc (LIdent f) args fexpr -> (f, ELambda args fexpr)
-    t <- tcmToStm $ infer expr
-    modify $ Map.insert x $ ForAll [] t
-    return t
+    typ <- tcmToStm $ declare decl >>= \t -> solve >>= \s -> return $ s |-> t
+    let x = case decl of DVar (LIdent v) _ -> v ; DFunc (LIdent f) _ _ -> f
+    modify $ insertVarType x $ ForAll [] typ
+    return [typ]
     
   IExpr expr -> do
-    t <- tcmToStm $ infer expr
-    return t
+    t <- tcmToStm $ typeOf expr >>= \t -> solve >>= \s -> return $ s |-> t
+    return [t]
 
 typingProgram :: Program -> STM [Type]
-typingProgram (Prog instrs) = forM instrs typingInstr
+typingProgram (Prog instrs) = forM instrs typingInstr >>= \x -> return $ concat x
 
 typing :: Program -> TypeEnv -> Either TypeError ([Type], TypeEnv)
 typing p e = runIdentity $ runExceptT $ runStateT (typingProgram p) e
 
--- recursive functions declaration type infernece
 -- variable normlaization
 
 prettyType :: Type -> String
 prettyType t = case t of
   TVar (LIdent x) -> x
-  TConstr (Constr (UIdent con) tps) -> con ++ (unwords $ "" : (map prettyType tps))
+  TNull (UIdent con) -> con
+  TPoly (UIdent con) tps ->
+    let f x = case x of
+          TPoly _ _ -> "(" ++ prettyType x ++ ")"
+          _ -> prettyType x
+    in con ++ " " ++  (unwords $ map f tps)
   TArr (TArr t1 t2) tr ->
     "(" ++ prettyType t1 ++ " -> " ++ prettyType t2 ++ ") -> " ++ prettyType tr 
   TArr tl tr -> prettyType tl ++ " -> " ++ prettyType tr 
+  

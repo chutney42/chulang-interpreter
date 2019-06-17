@@ -88,16 +88,21 @@ Constr : UIdent ListType { AbsGrammar.Constr $1 (reverse $2) }
 ListConstr :: { [Constr] }
 ListConstr : Constr { (:[]) $1 }
            | Constr '|' ListConstr { (:) $1 $3 }
-Type :: { Type }
-Type : Type2 '->' Type { AbsGrammar.TArr $1 $3 } | Type1 { $1 }
-Type2 :: { Type }
-Type2 : LIdent { AbsGrammar.TVar $1 }
-      | Constr { AbsGrammar.TConstr $1 }
-      | '(' Type ')' { $2 }
 Type1 :: { Type }
-Type1 : Type2 { $1 }
+Type1 : '(' UIdent ListType2 ')' { AbsGrammar.TPoly $2 $3 }
+      | Type2 { $1 }
+Type2 :: { Type }
+Type2 : Type2 '->' Type { AbsGrammar.TArr $1 $3 } | Type3 { $1 }
+Type3 :: { Type }
+Type3 : LIdent { AbsGrammar.TVar $1 }
+      | UIdent { AbsGrammar.TNull $1 }
+      | '(' Type ')' { $2 }
+Type :: { Type }
+Type : Type1 { $1 }
 ListType :: { [Type] }
 ListType : {- empty -} { [] } | ListType Type { flip (:) $1 $2 }
+ListType2 :: { [Type] }
+ListType2 : Type2 { (:[]) $1 } | Type2 ListType2 { (:) $1 $2 }
 Arg :: { Arg }
 Arg : LIdent { AbsGrammar.Arg $1 }
 ListArg :: { [Arg] }
@@ -156,7 +161,7 @@ Expr11 :: { Expr }
 Expr11 : Integer { AbsGrammar.EInt $1 }
        | Boolean { AbsGrammar.EBool $1 }
        | LIdent { AbsGrammar.EVar $1 }
-       | UIdent { AbsGrammar.EConstr $1 }
+       | UIdent { AbsGrammar.ECVar $1 }
        | '(' Expr ')' { $2 }
 Expr1 :: { Expr }
 Expr1 : Expr2 { $1 }

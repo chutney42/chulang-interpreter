@@ -23,7 +23,7 @@ data Value
   = VInt Integer
   | VBool Bool
   | VClosure [Arg] Expr ValueEnv
-  | VConstr String [LazyValue]
+  | VConstr String [Value]
   deriving (Eq, Ord, Read)
 
 instance Show Value where
@@ -31,11 +31,11 @@ instance Show Value where
   show (VBool b) = show b
 --  show (VList l) = show l
   show (VClosure _ _ _) = "<closure>"
-  show (VConstr s lvals) =
-    let x = runIdentity $ runExceptT $ runReaderT (mapM evaluateLazyValue lvals) initVEnv
-    in case x of
-      Right r -> s ++ show r
-      Left e -> show e
+  show (VConstr s vals) = s ++ " " ++ (unwords $ map show vals)
+--    let x = runIdentity $ runExceptT $ runReaderT (mapM evaluateLazyValue lvals) initVEnv
+--    in case x of
+--      Right r -> s ++ show r
+--      Left e -> show e
 
 type SEM a = StateT ValueEnv (ExceptT EvalError Identity) a
 type REM a = ReaderT ValueEnv (ExceptT EvalError Identity) a
@@ -66,96 +66,82 @@ evaluateLazyValue :: LazyValue -> REM Value
 evaluateLazyValue (LazyValue env expr) = local (const env) $ evaluate expr
 
 evaluate :: Expr -> REM Value
+evaluate exp = case exp of
+  EBool b ->
+    case b of
+      BTrue -> return (VBool True)
+      BFalse -> return (VBool False)
 
-evaluate (EVar (LIdent x)) = do
-  found <- asks $ Map.lookup x
-  case found of
-    Just lv -> evaluateLazyValue lv
-    Nothing -> throwError $ "Variable not in scope: " ++ x
+  EInt a -> return (VInt a)
+  
+  EVar (LIdent x) -> do
+    found <- asks $ Map.lookup x
+    case found of
+      Just lv -> evaluateLazyValue lv
+      Nothing -> throwError $ "Variable not in scope: " ++ x
+  
+  ECVar (UIdent x) -> do
+    found <- asks $ Map.lookup x
+    case found of
+      Just lv -> evaluateLazyValue lv
+      Nothing -> throwError $ "Variable not in scope: " ++ x
 
-evaluate (EConstr (UIdent x)) = do
-  found <- asks $ Map.lookup x
-  case found of
-    Just lv -> evaluateLazyValue lv
-    Nothing -> throwError $ "Variable not in scope: " ++ x
+  EConstr (UIdent c) exprs -> do
+    --env <- ask
+    vals <- mapM evaluate exprs 
+    return $ VConstr c vals
 
---evaluate (EData (UIdent c) exprs) = do
---  env <- ask
---  return $ VConstr c $ map ((,) env) exprs
+  ELambda args expr -> do
+    env <- ask
+    return $ VClosure args expr env
 
-evaluate (EBool b) =
-  case b of
-    BTrue -> return (VBool True)
-    BFalse -> return (VBool False)
+  EApply lexpr rexpr -> do
+    ele <- evaluate lexpr
+    case ele of
+      VClosure args@((Arg (LIdent x)):xs) fexpr fenv -> do
+        fenv' <- asks (\env -> Map.insert x (LazyValue env rexpr) fenv)
+        case xs of
+          [] -> local (const fenv') $ evaluate fexpr
+          _ -> return $ VClosure xs fexpr fenv'
+      _ -> throwError "Other type Error"
 
-evaluate (EInt a) = return (VInt a)
+  ELet decls expr -> do
+    env <- ReaderT (execStateT (forM_ decls declare))
+    local (const env) (evaluate expr)
 
-evaluate (ELambda args expr) = do
-  env <- ask
-  return $ VClosure args expr env
+  EIfte bexpr lexpr rexpr -> evaluate bexpr >>= \(VBool b) ->
+    if b then evaluate lexpr else evaluate rexpr
 
-evaluate (EApply lexpr rexpr) = do
-  ele <- evaluate lexpr
-  case ele of
-    VClosure args@((Arg (LIdent x)):xs) fexpr fenv -> do
-      --VClosure args@((Arg (LIdent x)):xs) fexpr fenv <- evaluate lexpr
-      fenv' <- asks (\env -> Map.insert x (LazyValue env rexpr) fenv)
-      case xs of
-        [] -> local (const fenv') $ evaluate fexpr
-        _ -> return $ VClosure xs fexpr fenv'
-    _ -> throwError "Other type Error"
+  EOr lexpr rexpr -> do
+    vl <- evaluate lexpr
+    case vl of
+      VBool True -> return $ VBool True
+      VBool False -> evaluate rexpr
 
-evaluate (ELet decls expr) = do
-  env <- ReaderT (execStateT (forM_ decls declare))
-  local (const env) (evaluate expr)
+  EAnd lexpr rexpr -> do
+    vl <- evaluate lexpr
+    case vl of
+      VBool False -> return $ VBool False
+      VBool True -> evaluate rexpr
 
-evaluate (EIfte bexpr lexpr rexpr) = do
-  vb <- evaluate bexpr
-  case vb of
-    VBool b -> if b then evaluate lexpr else evaluate rexpr
-
-evaluate (EOr lexpr rexpr) = do
-  vl <- evaluate lexpr
-  case vl of
-    VBool True -> return $ VBool True
-    VBool False -> evaluate rexpr
-
-evaluate (EAnd lexpr rexpr) = do
-  vl <- evaluate lexpr
-  case vl of
-    VBool False -> return $ VBool False
-    VBool True -> evaluate rexpr
-
-evaluate (EEq lexpr rexpr) = do
-  vl <- evaluate lexpr
-  vr <- evaluate rexpr
-  return $ VBool $ vl == vr
-
-evaluate (ENeq lexpr rexpr) = do
-  vl <- evaluate lexpr
-  vr <- evaluate rexpr
-  return $ VBool $ vl /= vr
-
-evaluate (ELeq lexpr rexpr) = evalBinOp (\x y -> VBool $ x <= y) lexpr rexpr
-evaluate (ELes lexpr rexpr) = evalBinOp (\x y -> VBool $ x < y) lexpr rexpr
-evaluate (EGre lexpr rexpr) = evalBinOp (\x y -> VBool $ x > y) lexpr rexpr
-evaluate (EGeq lexpr rexpr) = evalBinOp (\x y -> VBool $ x >= y) lexpr rexpr
-evaluate (EAdd lexpr rexpr) = evalBinOp (\x y -> VInt $ x + y) lexpr rexpr
-evaluate (ESub lexpr rexpr) = evalBinOp (\x y -> VInt $ x - y) lexpr rexpr
-evaluate (EMul lexpr rexpr) = evalBinOp (\x y -> VInt $ x * y) lexpr rexpr
-evaluate (EDiv lexpr rexpr) = do
-  vl <- evaluate lexpr
-  vr <- evaluate rexpr
-  case (vl, vr) of
-    (_, VInt 0) -> lift $ throwError "Divide by zero"
-    (VInt l, VInt r) -> return $ VInt (div l r)
-
-evaluate (EMatch expr matchings) = do
-  case matchings of
-    (Matching pat mexpr):t -> do
-      (b, nenv) <- ReaderT (\env -> runStateT (matchPattern (LazyValue env expr) pat) env)
-      if b then local (const nenv) (evaluate mexpr) else evaluate (EMatch expr t)
-    [] -> lift $ throwError "Non-exhaustive patterns"
+  EEq le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x == y
+  ENeq le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x /= y
+  ELeq le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x <= y
+  ELes le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x < y
+  EGre le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x > y
+  EGeq le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VBool $ x >= y
+  EAdd le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VInt $ x + y
+  ESub le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VInt $ x - y
+  EMul le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) -> return $ VInt $ x * y
+  EDiv le re -> evaluate le >>= \(VInt x) -> evaluate re >>= \(VInt y) ->
+    if y == 0 then throwError "Divide by zero" else return $ VInt $ div x y
+{-
+  EMatch expr matchings -> do
+    case matchings of
+      (Matching pat mexpr):t -> do
+        (b, nenv) <- ReaderT (\env -> runStateT (matchPattern (LazyValue env expr) pat) env)
+        if b then local (const nenv) (evaluate mexpr) else evaluate (EMatch expr t)
+      [] -> lift $ throwError "Non-exhaustive patterns"
 
 
 matchPattern :: LazyValue -> Pattern -> SEM Bool
@@ -182,24 +168,24 @@ matchPattern lv (PConstr (UIdent p) pats) = do
       then foldM (\b (av, ap) -> if b then matchPattern av ap else return False) True (zip vs pats)
       else return False
     _ -> return False
-
-evalBinOp :: (Integer -> Integer -> Value) -> Expr -> Expr -> REM Value
-evalBinOp binOp lexpr rexpr = do
-  vl <- evaluate lexpr
-  vr <- evaluate rexpr
-  case (vl, vr) of
-    (VInt l, VInt r) -> return $ binOp l r
-
-
+-}
 execInstr :: Instr -> SEM (Maybe Value)
 execInstr instr = case instr of
+  IType (TypeDef _ vars constrs) -> do
+    let prepare (Constr ic@(UIdent c) ts) = case ts of
+          [] -> (c, EConstr ic [])
+          _ -> (c, ELambda args expr) where
+            pom = map (\a-> LIdent ('x':(show a))) [0..(length ts - 1)]
+            args = map Arg pom
+            expr = EConstr ic $ map EVar pom
+    let constrs' = map prepare constrs
+    env <- get
+    put $ foldr (\(c, expr) a -> Map.insert c (LazyValue env expr) a) env constrs'
+    return Nothing
+              
   IDecl decl -> do
     declare decl
     return Nothing
-
---  IType def = do
---    defineType def
---    return Nothing
 
   IExpr expr -> do
     v <- StateT $ \env->(fmap (\x->(x, env)) (runReaderT (evaluate expr) env))

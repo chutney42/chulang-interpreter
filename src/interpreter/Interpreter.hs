@@ -26,7 +26,7 @@ initEnv = Env { valueEnv = initVEnv, typeEnv = initTypeEnv }
   
 interpretOne :: String -> StateT Env IO ()
 interpretOne s = case pProgram (myLexer s) of
-  Bad e -> liftIO $ hPutStrLn stderr e
+  Bad e -> liftIO $ hPutStrLn stderr "Syntax error"
   Ok p -> do
     tenv <- gets typeEnv
     case typing p tenv of
@@ -39,20 +39,6 @@ interpretOne s = case pProgram (myLexer s) of
           Right (mvals, venv') -> do
             liftIO $ putStr $ unlines $ map (show . fromJust) $ filter isJust mvals
             put $ Env venv' tenv'
-{-
-interpretOne :: String -> StateT Env IO ()
-interpretOne s = case pProgram (myLexer s) of
-  Bad e -> liftIO $ hPutStrLn stderr e
-  Ok p -> do
-    tenv <- gets typeEnv
-    venv <- gets valueEnv
-    case execute p venv of
-      Left e -> liftIO $ hPrint stderr e
-      Right (mval, venv') -> do
-        liftIO $ print mval
-        put $ Env venv' tenv
--}
-
 
 interpretMany :: [String] -> StateT Env IO ()
 interpretMany ls = forM_ ls interpretOne

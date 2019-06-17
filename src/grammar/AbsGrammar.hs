@@ -25,7 +25,8 @@ data TypeDef = TypeDef UIdent [LIdent] [Constr]
 data Constr = Constr UIdent [Type]
   deriving (Eq, Ord, Show, Read)
 
-data Type = TArr Type Type | TVar LIdent | TConstr Constr
+data Type
+    = TPoly UIdent [Type] | TArr Type Type | TVar LIdent | TNull UIdent
   deriving (Eq, Ord, Show, Read)
 
 data Arg = Arg LIdent
@@ -66,7 +67,7 @@ data Expr
     | EInt Integer
     | EBool Boolean
     | EVar LIdent
-    | EConstr UIdent
-    | EData UIdent [Expr]
+    | ECVar UIdent
+    | EConstr UIdent [Expr]
   deriving (Eq, Ord, Show, Read)
 

@@ -149,9 +149,12 @@ instance Print [Constr] where
 
 instance Print Type where
   prt i e = case e of
-    TArr type_1 type_2 -> prPrec i 0 (concatD [prt 2 type_1, doc (showString "->"), prt 0 type_2])
-    TVar lident -> prPrec i 2 (concatD [prt 0 lident])
-    TConstr constr -> prPrec i 2 (concatD [prt 0 constr])
+    TPoly uident types -> prPrec i 1 (concatD [doc (showString "("), prt 0 uident, prt 2 types, doc (showString ")")])
+    TArr type_1 type_2 -> prPrec i 2 (concatD [prt 2 type_1, doc (showString "->"), prt 0 type_2])
+    TVar lident -> prPrec i 3 (concatD [prt 0 lident])
+    TNull uident -> prPrec i 3 (concatD [prt 0 uident])
+  prtList 2 [x] = concatD [prt 2 x]
+  prtList 2 (x:xs) = concatD [prt 2 x, prt 2 xs]
   prtList _ [] = concatD []
   prtList _ (x:xs) = concatD [prt 0 x, prt 0 xs]
 
@@ -216,8 +219,8 @@ instance Print Expr where
     EInt n -> prPrec i 11 (concatD [prt 0 n])
     EBool boolean -> prPrec i 11 (concatD [prt 0 boolean])
     EVar lident -> prPrec i 11 (concatD [prt 0 lident])
-    EConstr uident -> prPrec i 11 (concatD [prt 0 uident])
-    EData uident exprs -> prPrec i 11 (concatD [prt 0 uident, prt 11 exprs])
+    ECVar uident -> prPrec i 11 (concatD [prt 0 uident])
+    EConstr uident exprs -> prPrec i 11 (concatD [prt 0 uident, prt 11 exprs])
   prtList 11 [] = concatD []
   prtList 11 (x:xs) = concatD [prt 11 x, prt 11 xs]
 

@@ -41,7 +41,7 @@ The reserved words used in grammar are the following:
 
 The symbols used in grammar are the following:
   | ; | = | , | |
-  | -> | ( | ) | _
+  | ( | ) | -> | _
   | \ | . | || | &&
   | == | != | <= | <
   | > | >= | + | -
@@ -77,14 +77,18 @@ All other symbols are terminals.
   | //Constr// | -> | //UIdent// //[Type]// 
   | //[Constr]// | -> | //Constr// 
   |  |  **|**  | //Constr// ``|`` //[Constr]// 
-  | //Type// | -> | //Type2// ``->`` //Type// 
-  |  |  **|**  | //Type1// 
-  | //Type2// | -> | //LIdent// 
-  |  |  **|**  | //Constr// 
+  | //Type1// | -> | ``(`` //UIdent// //[Type2]// ``)`` 
+  |  |  **|**  | //Type2// 
+  | //Type2// | -> | //Type2// ``->`` //Type// 
+  |  |  **|**  | //Type3// 
+  | //Type3// | -> | //LIdent// 
+  |  |  **|**  | //UIdent// 
   |  |  **|**  | ``(`` //Type// ``)`` 
-  | //Type1// | -> | //Type2// 
+  | //Type// | -> | //Type1// 
   | //[Type]// | -> | **eps**
   |  |  **|**  | //Type// //[Type]// 
+  | //[Type2]// | -> | //Type2// 
+  |  |  **|**  | //Type2// //[Type2]// 
   | //Arg// | -> | //LIdent// 
   | //[Arg]// | -> | //Arg// 
   |  |  **|**  | //Arg// //[Arg]// 

@@ -19,19 +19,25 @@ DVar. Decl ::= LIdent "=" Expr ;
 DFunc. Decl ::= LIdent [Arg] "=" Expr ; -- ":" Type ;
 separator Decl "," ;
 
-TypeDef. TypeDef ::= UIdent [LIdent] "=" [Constr] ; 
+TypeDef. TypeDef ::= UIdent [LIdent] "=" [Constr] ;
 
+--CPoly. Constr ::= UIdent [Type] ;
+--CNull. Constr ::= UIdent ;
 Constr. Constr ::= UIdent [Type] ;
 separator nonempty Constr "|" ;
 
-TArr. Type ::= Type2 "->" Type ;
---TList. Type2 ::= "[" Type "]" ;
---TInt. Type2 ::= "Int" ;
---TBool. Type2 ::= "Bool" ;
-TVar. Type2 ::= LIdent ;
-TConstr. Type2 ::= Constr;
-coercions Type 2 ;
+--coercions Constr 2 ;
+--Constr. Constr ::= UIdent [Type] ;
+--TConstr. Type1 ::= Constr ;
+
+TPoly. Type1 ::= "(" UIdent [Type2] ")" ;
+TArr. Type2 ::= Type2 "->" Type ;
+TVar. Type3 ::= LIdent ;
+TNull. Type3 ::= UIdent ;
+coercions Type 3 ;
 separator Type "" ;
+separator nonempty Type2 "" ;
+
 
 --Arg. Arg ::= LIdent ":" Type ;
 --separator Arg "" ;
@@ -86,8 +92,8 @@ EApply. Expr10 ::= Expr10 Expr11 ;
 EInt. Expr11 ::= Integer ;
 EBool. Expr11 ::= Boolean ;
 EVar. Expr11 ::= LIdent ;
-EConstr. Expr11 ::= UIdent ;
-internal EData. Expr11 ::= UIdent [Expr11];
+ECVar. Expr11 ::= UIdent ;
+internal EConstr. Expr11 ::= UIdent [Expr11] ;
 
 coercions Expr 11 ;
 separator Expr11 "" ;
