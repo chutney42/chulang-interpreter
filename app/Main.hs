@@ -3,6 +3,8 @@ module Main  where
 import System.IO
 import System.Environment
 
+import Control.Monad
+
 import Interpreter
 
 main :: IO ()
@@ -12,20 +14,8 @@ main = do
     [] -> do
       contents <- getContents
       runInterpretMany $ lines contents
-    [f] -> do
-      handle <- openFile f ReadMode
-      contents <- hGetContents handle
-      runInterpretOne contents
-      hClose handle
-    _ -> hPutStrLn stderr "Too many arguments"
-{-
-parseAndRun :: String -> IO ()
-parseAndRun program =
-  case pProgram (myLexer program) of
-    Ok p -> case interpret p of
-      Right vals -> putStr $ unlines $ map showSomething $ filter isSomething vals
-        where isSomething x = case x of Nothing -> False ; _ -> True
-              showSomething (Just (v, t)) = show v ++ " : " ++ show t
-      Left e -> hPutStrLn stderr e
-    Bad e -> hPutStrLn stderr e
--}
+    fs -> do
+      handles <- mapM (\f -> openFile f ReadMode) fs
+      contents <- mapM hGetContents handles
+      runInterpretMany contents
+      mapM_ hClose handles
