@@ -11,8 +11,6 @@ import Control.Monad.Identity
 import AbsGrammar
 
 
---type EvalError = String -- TODO
-
 data EvalError
   = DivByZero
   | NoPattern
@@ -40,8 +38,12 @@ instance Show Value where
   show (VConstr s lvals) =
     let x = runIdentity $ runExceptT $ runReaderT (mapM evaluateLazyValue lvals) initVEnv
     in case x of
-      Right r -> s ++ (unwords $ ("":(map show r)))
       Left e -> show e
+      Right r ->
+        let f a = case a of
+              VConstr _ (_:_) -> "(" ++ show a ++ ")"
+              _ -> show a
+        in s ++ (unwords $ ("":(map f r)))
 
 type SEM a = StateT ValueEnv (ExceptT EvalError Identity) a
 type REM a = ReaderT ValueEnv (ExceptT EvalError Identity) a

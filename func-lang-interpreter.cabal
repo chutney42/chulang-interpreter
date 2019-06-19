@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bc93bf5cc847c1bf9ef94cdd6b09df6c835bf938fbbde8a8ab5083f7884903cc
+-- hash: 84375c621b00558ffa279385f3a7e22274bb6a0cc2c863d393620a291a81e23b
 
 name:           func-lang-interpreter
 version:        0.1.0.0
@@ -27,7 +27,6 @@ source-repository head
 
 library
   exposed-modules:
-      Environment
       Evaluator
       Inferrer
       Interpreter

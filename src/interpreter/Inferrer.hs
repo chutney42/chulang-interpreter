@@ -1,4 +1,4 @@
-module Inferrer ( TypeEnv(..), typing, prettyType, TypeError(..), initTypeEnv ) where
+module Inferrer ( TypeEnv(..), typing, prettyType, TypeError(..), initTypeEnv, TypeState, initTypeState) where
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -17,7 +17,9 @@ import AbsGrammar
 type Arity = Int
 
 data TypeEnv = TEnv { varTypes :: Map.Map String Scheme,
-                      typeConstrs :: Map.Map String Arity }
+                      typeConstrs :: Map.Map String Arity } deriving Show
+
+type TypeState = (TcState, TypeEnv)
 
 data TypeError
   = Mismatch Type Type
@@ -39,8 +41,7 @@ instance Show TypeError where
   show (ConflictingVars x) = "Conficting definitions: " ++ x
   show (ConstrutorWrongArity s l r) = "Constructor " ++ s ++ " should have " ++ show l ++ " arguments, but has been given " ++ show r
 
-
-data Scheme = ForAll [String] Type
+data Scheme = ForAll [String] Type deriving Show
 
 type TCM a = StateT TcState (ReaderT TypeEnv (ExceptT TypeError (Identity))) a
 
@@ -50,9 +51,7 @@ data TcState = TcState {
   constraints :: Constraints -- równania
 } deriving Show
 
-type STM a = StateT TypeEnv (ExceptT TypeError (Identity)) a
-
-type RTM a = ReaderT TypeEnv (ExceptT TypeError (Identity)) a
+type STM a = StateT TypeState (ExceptT TypeError (Identity)) a
 
 type Constraint = (Type, Type)
 
@@ -97,6 +96,10 @@ instance (Substitutable a, Substitutable b) => Substitutable (a, b) where
   (|->) s (t1, t2) = (s |-> t1, s |-> t2)
   ftv (t1, t2) = Set.union (ftv t1) (ftv t2)
 
+instance Substitutable TypeEnv where
+  (|->) s tenv = tenv { varTypes = Map.map (s |->) (varTypes tenv) }
+  ftv = ftv . Map.elems . varTypes
+
 emptySubst :: Subst
 emptySubst = Map.empty
 
@@ -108,6 +111,9 @@ initTypeEnv :: TypeEnv
 initTypeEnv =
   TEnv { varTypes = Map.empty,-- Map.empty }
          typeConstrs = Map.fromList [("Int", 0), ("Bool", 0)] }
+
+initTypeState :: TypeState
+initTypeState = (initTcState, initTypeEnv)
 
 insertVarType :: String -> Scheme -> TypeEnv -> TypeEnv
 insertVarType x s te = te { varTypes = Map.insert x s (varTypes te) }
@@ -133,8 +139,8 @@ freshName = do
   state <- get
   let c = counter $ tcsNS state
   put state { tcsNS = NameSupply { counter = c + 1 } } 
-  let f = chr $ 97 + (mod c 25)
-  let s = intToDigit $ div c 25
+  let f = chr $ 97 + (mod c 26)
+  let s = intToDigit $ div c 26
   return $ TVar $ LIdent [f, s]
 
 instantiate :: Scheme -> TCM Type
@@ -198,13 +204,11 @@ typeOf expr = case expr of
   ELet decls rexpr -> case decls of
     [] -> typeOf rexpr
     d:ds -> do
-      ltype <- declare d
-      --s <- generalize ltype
+      (_, env) <- declare d
       let rexpr' = case ds of [] -> rexpr ; _ -> ELet ds rexpr
-      let x = case d of DVar (LIdent v) _ -> v ; DFunc (LIdent f) _ _ -> f
-      rtype <- local (insertVarType x (ForAll [] ltype)) $ typeOf rexpr'
+      rtype <- local (const env) $ typeOf rexpr'
       return rtype
-
+  
   EIfte bexpr lexpr rexpr -> do
     checkType bexpr bool
     lt <- typeOf lexpr
@@ -243,7 +247,7 @@ checkTypePattern :: Pattern -> Type -> TCM TypeEnv
 checkTypePattern pat t = case pat of
   PWildcard -> ask
   PInt _ -> addConstraint int t >> ask
-  PBool _ -> addConstraint int t >> ask
+  PBool _ -> addConstraint bool t >> ask
   PVar (LIdent p) -> asks $ insertVarType p $ ForAll [] t
   PConstr (UIdent p) pats -> do
     found <- asks $ (Map.lookup p) . varTypes
@@ -253,12 +257,12 @@ checkTypePattern pat t = case pat of
     let a = arityOf pt
         l = length pats
     unless (a == l) $ throwError $ ConstrutorWrongArity p a l
-    let f (a, e, c) x = case a of
+    let f (a, e) x = case a of
           TArr l r -> do
             e' <- local (const e) $ checkTypePattern x l
-            return (r, e', c + 1)
+            return (r, e')
     env <- ask
-    (t', env', c) <- foldM f (pt, env, 0) pats
+    (t', env') <- foldM f (pt, env) pats
     addConstraint t t'
     return env'
     
@@ -304,17 +308,18 @@ infer expr = do
   s <- solve
   return $ s |-> t
 
-
-declare :: Decl -> TCM Type
+declare :: Decl -> TCM (Type, TypeEnv)
 declare decl = do
   let (x, expr) = case decl of
         DVar (LIdent v) expr -> (v, expr)
-        DFunc (LIdent f) args expr' -> (f, ELambda args expr')
+        DFunc (LIdent f) args expr -> (f, ELambda args expr)
   tv <- freshName
-  local (insertVarType x (ForAll [] tv)) $ checkType expr tv
-  return tv
-
-validateType :: Type -> RTM ()
+  s <- local (insertVarType x (ForAll [] tv)) $ checkType expr tv >> solve
+  let t = s |-> tv
+  sc <- local (s |->) $ generalize t
+  asks $ ((,) t) . (s |->) . (insertVarType x sc)
+  
+validateType :: Type -> TCM ()
 validateType typ = do
   let notInScope x a e = case ((Map.lookup x) . typeConstrs) e of
         Nothing -> True
@@ -327,44 +332,43 @@ validateType typ = do
     TPoly (UIdent x) ts -> do
       when (notInScope x (length ts) env) $ throwError $ TypeConstrNotInScope x
       forM_ ts validateType
-    
-addVars :: [LIdent] -> RTM TypeEnv
+
+addVars :: [LIdent] -> TCM TypeEnv
 addVars vars = case vars of
         [] -> ask
         lh@(LIdent h):t -> do
           when (any (==lh) t) $ throwError $ ConflictingVars h
           local (insertTypeConstr h (-1)) $ addVars t
 
-defineType :: TypeDef -> RTM [Type]
+defineType :: TypeDef -> TCM [Type]
 defineType (TypeDef typ vars constrs) = do
-  env <- addVars vars                        
+  env <- addVars vars
   let validateConstr (Constr (UIdent c) ts) = forM_ ts validateType
       typ' = case vars of [] -> TNull typ ; _ -> TPoly typ (map (\x->TVar x) vars)
   local (const env) $ forM_ constrs validateConstr
   return $ map (\(Constr (UIdent c) ts)->foldr TArr typ' ts) constrs
 
 tcmToStm :: TCM a -> STM a
-tcmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT (evalStateT x initTcState) e
+tcmToStm x = StateT $ \s@(t, e) -> fmap (\x -> (x, s)) $ runReaderT (evalStateT x t) e
 
-rtmToStm :: RTM a -> STM a
-rtmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT x e
+--rtmToStm :: RTM a -> STM a
+--rtmToStm x = StateT $ \e -> fmap (\x -> (x, e)) $ runReaderT x e
 
 typingInstr :: Instr -> STM [Type]
 typingInstr instr = case instr of
   IType td@(TypeDef utyp@(UIdent typ) vars constrs) -> do
-    modify $ insertTypeConstr typ (length vars)
-    cts <- rtmToStm $ defineType td
+    modify $ \(s, e)->(s, insertTypeConstr typ (length vars) e)
+    cts <- tcmToStm $ defineType td
     let typ' = case vars of [] -> TNull utyp ; _ -> TPoly utyp (map (\x->TVar x) vars)
         vars' = map (\(LIdent x)->x) vars
         cnames = map (\(Constr (UIdent cn) _)->cn) constrs
-    forM_ (zip cnames cts) $ \(c, t)-> modify $ insertVarType c (ForAll vars' t)
+    forM_ (zip cnames cts) $ \(c, t)-> modify $ \(s, e)->(s, insertVarType c (ForAll vars' t) e)
     return cts
 
   IDecl decl -> do
-    typ <- tcmToStm $ declare decl >>= \t -> solve >>= \s -> return $ s |-> t
-    let x = case decl of DVar (LIdent v) _ -> v ; DFunc (LIdent f) _ _ -> f
-    modify $ insertVarType x $ ForAll [] typ
-    return [typ]
+    (t, env) <- tcmToStm $ declare decl
+    modify $ \(s, _)->(s, env)
+    return [t]
     
   IExpr expr -> do
     t <- tcmToStm $ typeOf expr >>= \t -> solve >>= \s -> return $ s |-> t
@@ -373,8 +377,8 @@ typingInstr instr = case instr of
 typingProgram :: Program -> STM [Type]
 typingProgram (Prog instrs) = forM instrs typingInstr >>= \x -> return $ concat x
 
-typing :: Program -> TypeEnv -> Either TypeError ([Type], TypeEnv)
-typing p e = runIdentity $ runExceptT $ runStateT (typingProgram p) e
+typing :: Program -> TypeState -> Either TypeError ([Type], TypeState)
+typing p s = runIdentity $ runExceptT $ runStateT (typingProgram p) s
 
 prettyType :: Type -> String
 prettyType t = case t of
@@ -387,4 +391,4 @@ prettyType t = case t of
     in con ++ " " ++  (unwords $ map f tps)
   TArr (TArr t1 t2) tr ->
     "(" ++ prettyType t1 ++ " -> " ++ prettyType t2 ++ ") -> " ++ prettyType tr 
-  TArr tl tr -> prettyType tl ++ " -> " ++ prettyType tr 
+  TArr tl tr -> prettyType tl ++ " -> " ++ prettyType tr

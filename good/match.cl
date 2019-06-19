@@ -1,3 +1,11 @@
-let f x : Int = match x with 1 -> 1 | 2 -> 2 * 2 | 3 -> 3 * 3 * 3 | _ -> 42 ;
-f 3 ;
-f 4 ;
+type Maybe a = Just a | Nothing ;
+
+let x = Just (Just (Just Nothing)) ;
+
+match x with
+      	Nothing -> 1
+      | Just Nothing -> 2
+      | Just (Just (Just (Just Nothing))) -> 3
+      | Just (Just (Just Nothing)) -> 4
+      | Just (Just Nothing) -> 5
+      | _ -> 6 ;

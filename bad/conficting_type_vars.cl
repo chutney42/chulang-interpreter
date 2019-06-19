@@ -1,0 +1,1 @@
+type Ala a a = Ala a;
