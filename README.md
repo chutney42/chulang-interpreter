@@ -1,44 +1,48 @@
-# Interpreter
+# ChuLang Interpreter
 
-## Jak odpalić
+Interpreter of lazy, strongly and statically typed, functional language based mainly on Ocaml and Haskell. Created during JPP course.
 
-Kompilacja interpretera za pomocą `stack build`. Dostępne są dwa tryby:
+## How to run
+It is stack project so compile it using
+```stack build```
 
-1. Interpreter może czytać ze standardowego wejścia, wtedy każda linia jest interpretowana osobno, ale stan jest zachowany między wykonaniami linii.
-```stack exec interpreter```
+There are two possible modes:
 
-2. Intepreter może wykonać jeden lub wiele plików, wtedy każdy plik jest interpretowany osobno, ale stan jest zachowany między wykonaniami plików.
-```stack exec interpreter good/stdlib.cl good/lists.cl```
+1. Interpreter can read from standard input. Every line is interpreted separately but the state is kept between lines executions.
+``` stack exec interpreter ```
 
-Program składa się z trzech typów instrukcji: wyrażenia, deklaracji zmiennej (w tym funkcji), definicji typu. Po każdym wyrażeniu jest wypisywany typ i wartość wyrażenia. Po deklaracji zmiennej lub funkcji jest wypisywany typ. Po definicji typu są wypisywane typy jego konstruktorów wartości.
+2. Interpreter can execute one or more files. Every file is interpreted separately but the state is kept between files executions.
+``` stack exec interpreter good/stdlib.cl good/lists.cl ```
 
-## Zakres
-Interpreter leniwego (call-by-name), silnie statycznie typowanego, funkcyjnego języka.
+Every program is made of three instruction types:
+1. expression
+``` (\x y. x + y) 1 2 ; ```
 
-### Zrobione
-1. Co najmniej dwa typy wartości w wyrażeniach: int i bool
-(to znaczy if 2+2 then _ parsuje się, ale wyrażenie ma niepoprawny typ).
-2. Arytmetyka, porównania.
-3. Wyrażenie warunkowe if.
-4. Funkcje wieloargumentowe, rekurencja.
-5. Funkcje anonimowe, częściowa aplikacja, funkcje wyższego rzędu, domknięcia.
-6. Obsługa błędów wykonania, np. dzielenie przez zero (może być elegancki komunikat i zatrzymanie interpretera).
-7. Nie dotyczy
-8. Nie dotyczy
-9. Statyczne wiązanie identyfikatorów przy dowolnym poziomie zagnieżdżenia definicji.
-10. Statyczne typowanie (tj. zawsze terminująca faza kontroli typów przed rozpoczęciem
-wykonania programu). Na tym poziomie można wymagać jawnego podawania typów.
-11. Ogólne polimorficzne i rekurencyjne typy algebraiczne.
-Mile widziane wykonane w samym języku definicje typów List (składnia może być inna niż w
-Haskellu, lukier syntaktyczny nie wymagany), Maybe i Either oraz ich zastosowania w
-przykładowych programach.
-12. Dowolne zagnieżdżenie wzorców w pattern matchingu.
-13. Typy polimorficzne w stylu ML (jak Caml lub Haskell bez klas) z algorytmem rekonstrukcji
-typów. Nie jest konieczna (ale zabroniona też nie) składnia do deklarowania (skrótów) typów.
+2. variable declaration  
+``` let f x y = x + y ; ```
 
-### Mogłoby być
-1. Ujemne liczb
-2. Lukier syntaktyczny dla list
+3. type declaration
+``` type Maybe a = Just a | Nothing ; ```
 
-## Źródła
-1. Inferencja na podstawie http://dev.stephendiehl.com/fun/006_hindley_milner.html oraz slajdów z wykładu.
+## What is done
+* Built-in types: int, bool
+* Arithmetics, comparisons
+* Conditional expressions
+* Functions with many arguments, recursion
+* Lambda expressions, partial application, higher-order functions, closures
+* Handle of evaluation errors such as zero devision
+* Static name binding
+* Static typing
+* Polymorphic and recursive algebraic types
+* Multi-level pattern matching
+* Type reconstruction (Damas–Hindley–Milner type system based on http://dev.stephendiehl.com/fun/006_hindley_milner.html)
+
+## What could be done
+1. Negative numbers xd
+2. Syntactic sugar for lists
+3. Tuples
+
+## Further information
+Parsing done using BNF Converter.
+
+There are some examples in `good` and `bad` directory.
