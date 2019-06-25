@@ -1,6 +1,6 @@
-name:                func-lang-interpreter
+name:                chulang-interpreter
 version:             0.1.0.0
-github:              "chutien/func-lang-interpreter"
+github:              "chutien/chulang-interpreter"
 license:             BSD3
 author:              "Tien Chu"
 maintainer:          "tc385532@students.mimuw.edu.pl"
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/func-lang-interpreter#readme>
+description:         Please see the README on GitHub at <https://github.com/githubuser/chulang-interpreter#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -39,7 +39,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - func-lang-interpreter
+    - chulang-interpreter
 
 tests:
   interpreter-test:
@@ -50,4 +50,4 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - func-lang-interpreter
+    - chulang-interpreter
